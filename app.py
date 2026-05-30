@@ -366,10 +366,11 @@ with col_right:
                         model_stream = io.BytesIO(model_bytes)
 
                         output = replicate.run(
-                            # SDXL img2img — silhouette-preserving fabric swap
+                            # SDXL img2img — current latest version (verified May 2026)
+                            # Full hash required — short hashes cause 422 errors.
                             # To use IP-Adapter (texture injection from swatch image), replace with:
                             # "lucataco/ip-adapter-sdxl:a4a8bafd6089e1716b06057c42b19378250d008b4fe1c752748f07b03de89e6"
-                            "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd72c19b408e8",
+                            "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
                             input={
                                 "image":           model_stream,
                                 "prompt":          prompt,
