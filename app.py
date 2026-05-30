@@ -1,242 +1,410 @@
 import streamlit as st
-import time
-import requests
 import replicate
+import requests
+import os
 import io
+import time
 from PIL import Image
+from pathlib import Path
 
 # ─────────────────────────────────────────────
 # PAGE CONFIG
 # ─────────────────────────────────────────────
-st.set_page_config(layout="wide", page_title="Neural Threads Fabric Lab")
-
-st.title("🧵 Neural Threads Fabric Lab")
-st.caption("Industrial Material Swapping · Latent Diffusion Matrix Compiler")
-st.write("---")
+st.set_page_config(
+    layout="wide",
+    page_title="Neural Threads Fabric Lab",
+    page_icon="🧵"
+)
 
 # ─────────────────────────────────────────────
-# API KEY — loaded from Streamlit Secrets
-# On Streamlit Cloud: App Settings → Secrets → add:
+# SECURITY: Load API key from Streamlit Secrets
+# On Streamlit Cloud → App Settings → Secrets:
 #   REPLICATE_API_TOKEN = "r8_your_token_here"
-# Locally: create .streamlit/secrets.toml and add the same line.
+# Locally → .streamlit/secrets.toml (add to .gitignore)
 # ─────────────────────────────────────────────
-import os
 os.environ["REPLICATE_API_TOKEN"] = st.secrets["REPLICATE_API_TOKEN"]
-# ─────────────────────────────────────────────
 
 # ─────────────────────────────────────────────
-# DEMO MODE — Pre-load your backup images here
+# DEMO MODE — place pre-generated JPGs in the
+# same folder as app.py and update paths below.
 # ─────────────────────────────────────────────
-DEMO_IMAGES = {
-    "Model_Charlie (Opaque Dress)":   "demo_charlie.jpg",   # ← put your pre-generated JPG filenames here
-    "Model_Foxtrot (Tailored Suit)":  "demo_foxtrot.jpg",
-    "Model_November (Fluid Silk)":    "demo_november.jpg",
-}
-# Place the demo image files in the SAME folder as app.py.
-# ─────────────────────────────────────────────
+DEMO_IMAGE_PATH = "demo_output.jpg"
 
 # ─────────────────────────────────────────────
-# LAYOUT: Three columns
+# LOOKBOOK CSS OVERHAUL
 # ─────────────────────────────────────────────
-col1, col2, col3 = st.columns([1, 1.5, 2], gap="large")
+st.markdown("""
+<style>
+  /* ── Hide Streamlit chrome ── */
+  #MainMenu, footer, header { visibility: hidden; }
+  .stDeployButton { display: none; }
 
-# ══════════════════════════════════════════════
-# COLUMN 1 — SOURCE ASSETS
-# ══════════════════════════════════════════════
-with col1:
-    st.subheader("1. Source Assets")
+  /* ── Global background & font ── */
+  html, body, [data-testid="stAppViewContainer"],
+  [data-testid="stApp"], .main {
+    background-color: #FAF7F2 !important;
+    color: #000000 !important;
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif !important;
+  }
 
-    model_choice = st.selectbox(
-        "Target Model / Garment Archetype:",
-        list(DEMO_IMAGES.keys())
-    )
-    uploaded_model = st.file_uploader(
-        "Upload Custom Model Image (.jpg/.png)",
-        type=["jpg", "jpeg", "png"],
-        key="model_upload"
-    )
+  /* ── Sidebar (if ever used) ── */
+  [data-testid="stSidebar"] {
+    background-color: #F5F0E8 !important;
+  }
 
-    st.write("---")
+  /* ── Page title ── */
+  h1 {
+    font-size: 2rem !important;
+    font-weight: 800 !important;
+    letter-spacing: -0.03em !important;
+    color: #000000 !important;
+    margin-bottom: 0 !important;
+  }
 
-    fabric_choice = st.selectbox(
-        "Select Reference Fabric Swatch:",
-        ["FA003 (Airy Open-Weave Linen)",
-         "FA004 (Parallel Black-Stitch Knit)",
-         "FA005 (Structured Cotton)"]
-    )
-    uploaded_fabric = st.file_uploader(
-        "Upload Custom Fabric Swatch (.jpg/.png)",
-        type=["jpg", "jpeg", "png"],
-        key="fabric_upload"
-    )
+  /* ── Subheaders ── */
+  h2, h3 {
+    font-weight: 700 !important;
+    letter-spacing: -0.02em !important;
+    color: #000000 !important;
+  }
 
-    st.write("---")
+  /* ── Caption / body text ── */
+  p, .stMarkdown p, label,
+  [data-testid="stText"] {
+    color: #333333 !important;
+    font-size: 0.875rem !important;
+  }
 
-    # ── DEMO MODE TOGGLE ──────────────────────
-    demo_mode = st.toggle(
-        "🎭 Demo Mode (Offline)",
-        value=False,
-        help=(
-            "ON  → Bypasses the API. Uses your pre-generated images. "
-            "Safe for live presentations.\n"
-            "OFF → Calls Replicate API with your uploaded images."
-        )
-    )
-    if demo_mode:
-        st.success("Demo Mode ON — API bypassed. Using pre-generated images.")
-    else:
-        st.info("Live Mode — Replicate API will be called on Execute.")
+  /* ── File uploader box ── */
+  [data-testid="stFileUploader"] {
+    background: #FFFFFF !important;
+    border: none !important;
+    border-radius: 12px !important;
+    box-shadow: 0 2px 16px rgba(0,0,0,0.07) !important;
+    padding: 8px !important;
+  }
+  [data-testid="stFileUploader"] section {
+    border: 1.5px dashed #DDCCBB !important;
+    border-radius: 10px !important;
+    background: #FDFAF6 !important;
+  }
+  [data-testid="stFileUploader"] section:hover {
+    border-color: #FF7F50 !important;
+    background: #FFF4EE !important;
+  }
+  [data-testid="stFileUploadDropzone"] label {
+    color: #777 !important;
+    font-size: 0.8rem !important;
+  }
 
-# ══════════════════════════════════════════════
-# COLUMN 2 — MATERIAL CHARACTERISTICS
-# ══════════════════════════════════════════════
-with col2:
-    st.subheader("2. Material Characteristics")
-    st.write("Define the precise physical parameters of the target fabric:")
+  /* ── Primary Execute button ── */
+  .stButton > button {
+    background-color: #FF7F50 !important;
+    color: #FFFFFF !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-weight: 700 !important;
+    font-size: 0.95rem !important;
+    letter-spacing: 0.03em !important;
+    padding: 0.65rem 1.5rem !important;
+    transition: background 0.2s, transform 0.1s !important;
+    box-shadow: 0 4px 14px rgba(255,127,80,0.35) !important;
+  }
+  .stButton > button:hover {
+    background-color: #e86d3f !important;
+    transform: translateY(-1px) !important;
+  }
+  .stButton > button:active {
+    transform: translateY(0) !important;
+  }
 
-    weight = st.radio(
-        "Textile Weight:",
-        ["Ultra-Lightweight", "Medium-Weight", "Heavy-Duty", "Rigid/Structured"],
-        index=0
-    )
-    opacity = st.radio(
-        "Optical Opacity / Translucency:",
-        ["Pure Opaque", "Semi-Sheer / Open-Weave", "Translucent / Airborne Physics"],
-        index=0
-    )
-    elasticity = st.radio(
-        "Elasticity & Stretch:",
-        ["Stiff / Zero Mechanical Stretch", "Slight Mechanical Give", "High Elasticity / Fluid Knit"],
-        index=1
-    )
+  /* ── Download button ── */
+  .stDownloadButton > button {
+    background-color: #000000 !important;
+    color: #FFFFFF !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+    font-size: 0.875rem !important;
+    padding: 0.55rem 1.25rem !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2) !important;
+    transition: background 0.2s !important;
+  }
+  .stDownloadButton > button:hover {
+    background-color: #333333 !important;
+  }
 
-    st.write("---")
+  /* ── Toggle ── */
+  [data-testid="stToggle"] label {
+    color: #000000 !important;
+    font-weight: 600 !important;
+  }
 
-    # Build the compiled prompt
-    compiled_prompt = (
+  /* ── Info / success / warning boxes ── */
+  [data-testid="stAlert"] {
+    border-radius: 10px !important;
+    border: none !important;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.06) !important;
+  }
+
+  /* ── Filename display pill ── */
+  .filename-pill {
+    display: inline-block;
+    background: #FFFFFF;
+    border: 1px solid #EADDD0;
+    border-radius: 20px;
+    padding: 4px 14px;
+    font-size: 0.78rem;
+    color: #FF7F50;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    margin-bottom: 8px;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.06);
+  }
+
+  /* ── Output image container ── */
+  .output-wrap {
+    background: #FFFFFF;
+    border-radius: 14px;
+    padding: 16px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+  }
+
+  /* ── Divider ── */
+  hr {
+    border: none !important;
+    border-top: 1px solid #EDE8E0 !important;
+    margin: 1.5rem 0 !important;
+  }
+
+  /* ── Spinner text ── */
+  [data-testid="stSpinner"] p {
+    color: #555 !important;
+    font-style: italic !important;
+  }
+</style>
+""", unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────
+# HELPER: extract readable name from filename
+# ─────────────────────────────────────────────
+def fabric_name_from_file(uploaded_file) -> str:
+    """
+    Turns 'Structured_Cotton.jpg' → 'Structured Cotton'
+    Turns 'airy-open-weave-linen.PNG' → 'Airy Open Weave Linen'
+    """
+    stem = Path(uploaded_file.name).stem          # strip extension
+    name = stem.replace("_", " ").replace("-", " ")
+    return name.title()
+
+
+def build_prompt(fabric_name: str) -> tuple[str, str]:
+    prompt = (
         f"Fashion editorial photograph. "
-        f"1:1 fabric pattern swap on {model_choice.split('(')[0].strip()}. "
-        f"Reference fabric: {fabric_choice}. "
-        f"Textile weight: {weight.lower()}. "
-        f"Opacity: {opacity.lower()}. "
-        f"Stretch: {elasticity.lower()}. "
-        f"Lock original silhouette, body pose, identity, and background exactly. "
-        f"Re-materialize only the garment fabric with geometric pattern continuity "
-        f"across all 3D curves, folds, and compressed fabric zones. "
-        f"High resolution, professional studio lighting."
+        f"Fabric swap: re-materialize the garment using {fabric_name} textile. "
+        f"Preserve the exact body pose, silhouette, identity, and background. "
+        f"Apply the fabric texture with geometric continuity across all 3D garment "
+        f"curves, folds, and compressed zones. "
+        f"High resolution, professional studio lighting, minimalist lookbook aesthetic."
     )
-
-    negative_prompt = (
+    negative = (
         "deformed body, changed silhouette, different pose, different person, "
-        "wrong proportions, blurry, low quality, watermark, artifacts"
+        "wrong proportions, blurry, low quality, watermark, artifacts, nudity"
     )
+    return prompt, negative
 
-    st.text_area(
-        "Compiled Prompt Payload:",
-        value=compiled_prompt,
-        height=140,
-        disabled=True
+
+# ─────────────────────────────────────────────
+# HEADER
+# ─────────────────────────────────────────────
+st.title("NEURAL THREADS")
+st.markdown(
+    "<p style='color:#888;font-size:0.85rem;letter-spacing:0.12em;"
+    "text-transform:uppercase;margin-top:-8px;margin-bottom:24px;'>"
+    "Fabric Lab · AI Material Swapping Engine</p>",
+    unsafe_allow_html=True
+)
+st.markdown("<hr>", unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────
+# DEMO MODE TOGGLE (top of page, always visible)
+# ─────────────────────────────────────────────
+demo_mode = st.toggle(
+    "🎭  Demo Mode (Offline — safe for live presentations)",
+    value=False,
+    help=(
+        "ON  → Bypasses the API entirely. Simulates loading, then shows your "
+        "pre-generated image. Guaranteed not to fail during your presentation.\n"
+        "OFF → Calls the Replicate API live with your uploaded images."
     )
+)
+if demo_mode:
+    st.success("**Demo Mode ON** — API is bypassed. Pre-generated image will display after simulated loading.")
+else:
+    st.info("**Live Mode** — Replicate img2img API will be called on Execute.")
 
-    generate_btn = st.button("🚀 Execute Latent Swap Engine", use_container_width=True)
+st.markdown("<hr>", unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────
+# MAIN LAYOUT: 2 columns
+# ─────────────────────────────────────────────
+col_left, col_right = st.columns([1, 1.4], gap="large")
 
 # ══════════════════════════════════════════════
-# COLUMN 3 — OUTPUT VIEWPORT
+# LEFT COLUMN — SOURCE ASSETS
 # ══════════════════════════════════════════════
-with col3:
-    st.subheader("3. Outcome Viewport")
-    output_placeholder = st.empty()
-    download_placeholder = st.empty()
-    output_placeholder.info("Awaiting execution… Select assets and press Execute.")
+with col_left:
+    st.subheader("Source Assets")
+    st.markdown(" ")
 
-    if generate_btn:
+    # ── Model Image ──────────────────────────
+    st.markdown("**Base Model Image**")
+    uploaded_model = st.file_uploader(
+        "Upload the garment photo you want to swap fabric on",
+        type=["jpg", "jpeg", "png"],
+        key="model_upload",
+        label_visibility="collapsed"
+    )
+    if uploaded_model:
+        st.markdown(
+            f'<div class="filename-pill">📎 {uploaded_model.name}</div>',
+            unsafe_allow_html=True
+        )
 
-        # ── DEMO MODE PATH ────────────────────────────────────────────────
+    st.markdown(" ")
+
+    # ── Fabric Swatch ────────────────────────
+    st.markdown("**Reference Fabric Swatch**")
+    uploaded_fabric = st.file_uploader(
+        "Upload the fabric texture you want applied",
+        type=["jpg", "jpeg", "png"],
+        key="fabric_upload",
+        label_visibility="collapsed"
+    )
+    if uploaded_fabric:
+        detected_name = fabric_name_from_file(uploaded_fabric)
+        st.markdown(
+            f'<div class="filename-pill">🧵 {uploaded_fabric.name}</div>',
+            unsafe_allow_html=True
+        )
+        st.markdown(
+            f"<p style='font-size:0.8rem;color:#888;margin-top:2px;'>"
+            f"Detected fabric: <strong style='color:#FF7F50'>{detected_name}</strong></p>",
+            unsafe_allow_html=True
+        )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    execute_btn = st.button("🚀  Execute Fabric Swap", use_container_width=True)
+
+# ══════════════════════════════════════════════
+# RIGHT COLUMN — OUTPUT VIEWPORT
+# ══════════════════════════════════════════════
+with col_right:
+    st.subheader("Output Viewport")
+    st.markdown(" ")
+
+    output_slot  = st.empty()
+    download_slot = st.empty()
+
+    output_slot.markdown(
+        "<div style='height:320px;background:#FFFFFF;border-radius:14px;"
+        "box-shadow:0 4px 24px rgba(0,0,0,0.07);display:flex;align-items:center;"
+        "justify-content:center;color:#BBAA99;font-size:0.85rem;letter-spacing:0.05em;'>"
+        "Awaiting execution…</div>",
+        unsafe_allow_html=True
+    )
+
+    # ─────────────────────────────────────────
+    # EXECUTE HANDLER
+    # ─────────────────────────────────────────
+    if execute_btn:
+
+        # ── DEMO MODE ────────────────────────
         if demo_mode:
-            with st.spinner("Demo Mode: Loading pre-generated result…"):
-                time.sleep(3)  # simulates realistic loading for the presentation
-
-            demo_path = DEMO_IMAGES.get(model_choice)
+            with st.spinner("Simulating neural engine… (Demo Mode)"):
+                time.sleep(3)
             try:
-                demo_img = Image.open(demo_path)
-                output_placeholder.image(demo_img, caption=f"Demo Output — {model_choice}", use_container_width=True)
-
-                # Download button
+                demo_img = Image.open(DEMO_IMAGE_PATH)
+                output_slot.markdown(
+                    '<div class="output-wrap">', unsafe_allow_html=True
+                )
+                output_slot.image(
+                    demo_img,
+                    caption="Demo Output — pre-generated result",
+                    use_container_width=True
+                )
                 buf = io.BytesIO()
                 demo_img.save(buf, format="JPEG", quality=95)
-                download_placeholder.download_button(
-                    label="⬇️ Download as JPG",
+                download_slot.download_button(
+                    label="⬇️  Download as JPG",
                     data=buf.getvalue(),
                     file_name=f"neural_threads_demo_{int(time.time())}.jpg",
-                    mime="image/jpeg"
+                    mime="image/jpeg",
+                    use_container_width=True
                 )
             except FileNotFoundError:
-                output_placeholder.error(
-                    f"Demo image '{demo_path}' not found. "
-                    f"Place your pre-generated JPGs in the same folder as app.py."
+                output_slot.error(
+                    f"Demo image `{DEMO_IMAGE_PATH}` not found. "
+                    "Place your pre-generated JPG in the same folder as app.py "
+                    "and update the DEMO_IMAGE_PATH variable at the top of the script."
                 )
 
-        # ── LIVE API PATH ─────────────────────────────────────────────────
+        # ── LIVE MODE ────────────────────────
         else:
             if uploaded_model is None:
-                output_placeholder.warning("⚠️ Please upload a model image to use Live Mode.")
+                output_slot.warning("⚠️  Please upload a Base Model Image to use Live Mode.")
+            elif uploaded_fabric is None:
+                output_slot.warning("⚠️  Please upload a Reference Fabric Swatch.")
             else:
-                with st.spinner("Neural Engine: Running img2img latent diffusion…"):
+                fabric_name = fabric_name_from_file(uploaded_fabric)
+                prompt, negative_prompt = build_prompt(fabric_name)
+
+                with st.spinner(f"Neural engine running… applying '{fabric_name}' fabric…"):
                     try:
-                        # Prepare inputs
-                        model_bytes = uploaded_model.read()
-                        model_img   = io.BytesIO(model_bytes)
+                        model_bytes  = uploaded_model.read()
+                        model_stream = io.BytesIO(model_bytes)
 
-                        # Build input dict — fabric swatch used to enrich the prompt
-                        # (for IP-Adapter texture injection, swap the model ID below)
-                        input_payload = {
-                            "image":           model_img,
-                            "prompt":          compiled_prompt,
-                            "negative_prompt": negative_prompt,
-
-                            # ── img2img strength ──────────────────────────
-                            # 0.0 = identical to source, 1.0 = fully regenerated
-                            # 0.55–0.70 is the sweet spot for silhouette-locked fabric swap
-                            "prompt_strength": 0.62,
-
-                            "num_inference_steps": 30,
-                            "guidance_scale":      7.5,
-                            "scheduler":           "DPMSolverMultistep",
-                            "num_outputs":         1,
-                        }
-
-                        # ── REPLICATE MODEL ID ────────────────────────────
-                        # Current endpoint: SDXL img2img (silhouette-preserving)
-                        # To switch to IP-Adapter (for texture injection from swatch),
-                        # replace the model string with:
-                        # "lucataco/ip-adapter-sdxl:a4a8bafd6089e1716b06057c42b19378250d008b4fe1c752748f07b03de89e6"
                         output = replicate.run(
+                            # SDXL img2img — silhouette-preserving fabric swap
+                            # To use IP-Adapter (texture injection from swatch image), replace with:
+                            # "lucataco/ip-adapter-sdxl:a4a8bafd6089e1716b06057c42b19378250d008b4fe1c752748f07b03de89e6"
                             "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd72c19b408e8",
-                            input=input_payload
+                            input={
+                                "image":           model_stream,
+                                "prompt":          prompt,
+                                "negative_prompt": negative_prompt,
+                                # 0.55–0.70: sweet spot for silhouette lock + fabric change
+                                # Lower = closer to source image
+                                "prompt_strength": 0.62,
+                                "num_inference_steps": 30,
+                                "guidance_scale":  7.5,
+                                "scheduler":       "DPMSolverMultistep",
+                                "num_outputs":     1,
+                            }
                         )
 
-                        # output is a list of image URLs
-                        result_url = output[0]
-                        result_img_data = requests.get(result_url).content
-                        result_img = Image.open(io.BytesIO(result_img_data))
+                        result_url      = output[0]
+                        result_bytes    = requests.get(result_url).content
+                        result_img      = Image.open(io.BytesIO(result_bytes))
 
-                        output_placeholder.image(
+                        output_slot.image(
                             result_img,
-                            caption="AI Fabric Swap Output",
+                            caption=f"Fabric swap — {fabric_name}",
                             use_container_width=True
                         )
 
-                        # Download button
                         buf = io.BytesIO()
                         result_img.save(buf, format="JPEG", quality=95)
-                        download_placeholder.download_button(
-                            label="⬇️ Download as JPG",
+                        download_slot.download_button(
+                            label="⬇️  Download as JPG",
                             data=buf.getvalue(),
                             file_name=f"neural_threads_{int(time.time())}.jpg",
-                            mime="image/jpeg"
+                            mime="image/jpeg",
+                            use_container_width=True
                         )
 
                     except replicate.exceptions.ReplicateError as e:
-                        output_placeholder.error(f"Replicate API error: {e}")
+                        output_slot.error(f"Replicate API error: {e}")
                     except Exception as e:
-                        output_placeholder.error(f"Unexpected error: {e}")
+                        output_slot.error(f"Unexpected error: {e}")
