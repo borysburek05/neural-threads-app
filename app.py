@@ -18,7 +18,7 @@ st.write("---")
 # ▼▼▼  PASTE YOUR REPLICATE API TOKEN HERE  ▼▼▼
 # ─────────────────────────────────────────────
 # Option A — hardcode for local testing (NOT for sharing):
-REPLICATE_API_TOKEN = "r8_PVvQTYQ2WFiwxHrXpUvz2mc07LvrfPl041rCT"
+REPLICATE_API_TOKEN = "r8_8YxV1gWGiwsBSbxMO34LY34ovIiuDj91DX7eP"
 
 # Option B (recommended for deployment) — use Streamlit secrets:
 # 1. Create a file at .streamlit/secrets.toml
