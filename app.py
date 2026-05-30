@@ -15,16 +15,13 @@ st.caption("Industrial Material Swapping · Latent Diffusion Matrix Compiler")
 st.write("---")
 
 # ─────────────────────────────────────────────
-# ▼▼▼  PASTE YOUR REPLICATE API TOKEN HERE  ▼▼▼
+# API KEY — loaded from Streamlit Secrets
+# On Streamlit Cloud: App Settings → Secrets → add:
+#   REPLICATE_API_TOKEN = "r8_your_token_here"
+# Locally: create .streamlit/secrets.toml and add the same line.
 # ─────────────────────────────────────────────
-# Option A — hardcode for local testing (NOT for sharing):
-REPLICATE_API_TOKEN = "r8_8YxV1gWGiwsBSbxMO34LY34ovIiuDj91DX7eP"
-
-# Option B (recommended for deployment) — use Streamlit secrets:
-# 1. Create a file at .streamlit/secrets.toml
-# 2. Add this line:  REPLICATE_API_TOKEN = "r8_your_token_here"
-# 3. Then replace the line above with:
-#    REPLICATE_API_TOKEN = st.secrets["REPLICATE_API_TOKEN"]
+import os
+os.environ["REPLICATE_API_TOKEN"] = st.secrets["REPLICATE_API_TOKEN"]
 # ─────────────────────────────────────────────
 
 # ─────────────────────────────────────────────
@@ -186,10 +183,6 @@ with col3:
             else:
                 with st.spinner("Neural Engine: Running img2img latent diffusion…"):
                     try:
-                        # Set the API token for this session
-                        import os
-                        os.environ["REPLICATE_API_TOKEN"] = REPLICATE_API_TOKEN
-
                         # Prepare inputs
                         model_bytes = uploaded_model.read()
                         model_img   = io.BytesIO(model_bytes)
