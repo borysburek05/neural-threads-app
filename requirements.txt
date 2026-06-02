@@ -1,3 +1,4 @@
 streamlit
 replicate
 Pillow
+google-genai
