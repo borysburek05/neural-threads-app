@@ -1,10 +1,10 @@
 import streamlit as st
-import replicate
-import requests
-import os
-import io
-import time
+from google import genai
+from google.genai import types
 from PIL import Image
+import io
+import os
+import time
 from pathlib import Path
 
 # ─────────────────────────────────────────────
@@ -19,19 +19,20 @@ st.set_page_config(
 # ─────────────────────────────────────────────
 # SECURITY: Load API key from Streamlit Secrets
 # On Streamlit Cloud → App Settings → Secrets:
-#   REPLICATE_API_TOKEN = "r8_your_token_here"
+#   GOOGLE_API_KEY = "AIza_your_key_here"
 # Locally → .streamlit/secrets.toml (add to .gitignore)
 # ─────────────────────────────────────────────
-os.environ["REPLICATE_API_TOKEN"] = st.secrets["REPLICATE_API_TOKEN"]
+os.environ["GOOGLE_API_KEY"] = st.secrets["GOOGLE_API_KEY"]
+client = genai.Client()
 
 # ─────────────────────────────────────────────
-# DEMO MODE — place pre-generated JPGs in the
-# same folder as app.py and update paths below.
+# DEMO MODE — place a pre-generated JPG in the
+# same folder as app.py and update the path.
 # ─────────────────────────────────────────────
 DEMO_IMAGE_PATH = "demo_output.jpg"
 
 # ─────────────────────────────────────────────
-# LOOKBOOK CSS OVERHAUL
+# LOOKBOOK CSS — unchanged from previous version
 # ─────────────────────────────────────────────
 st.markdown("""
 <style>
@@ -45,11 +46,6 @@ st.markdown("""
     background-color: #FAF7F2 !important;
     color: #000000 !important;
     font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif !important;
-  }
-
-  /* ── Sidebar (if ever used) ── */
-  [data-testid="stSidebar"] {
-    background-color: #F5F0E8 !important;
   }
 
   /* ── Page title ── */
@@ -92,10 +88,6 @@ st.markdown("""
     border-color: #FF7F50 !important;
     background: #FFF4EE !important;
   }
-  [data-testid="stFileUploadDropzone"] label {
-    color: #777 !important;
-    font-size: 0.8rem !important;
-  }
 
   /* ── Primary Execute button ── */
   .stButton > button {
@@ -114,9 +106,7 @@ st.markdown("""
     background-color: #e86d3f !important;
     transform: translateY(-1px) !important;
   }
-  .stButton > button:active {
-    transform: translateY(0) !important;
-  }
+  .stButton > button:active { transform: translateY(0) !important; }
 
   /* ── Download button ── */
   .stDownloadButton > button {
@@ -130,9 +120,7 @@ st.markdown("""
     box-shadow: 0 4px 12px rgba(0,0,0,0.2) !important;
     transition: background 0.2s !important;
   }
-  .stDownloadButton > button:hover {
-    background-color: #333333 !important;
-  }
+  .stDownloadButton > button:hover { background-color: #333333 !important; }
 
   /* ── Toggle ── */
   [data-testid="stToggle"] label {
@@ -140,14 +128,14 @@ st.markdown("""
     font-weight: 600 !important;
   }
 
-  /* ── Info / success / warning boxes ── */
+  /* ── Alerts ── */
   [data-testid="stAlert"] {
     border-radius: 10px !important;
     border: none !important;
     box-shadow: 0 2px 10px rgba(0,0,0,0.06) !important;
   }
 
-  /* ── Filename display pill ── */
+  /* ── Filename pill ── */
   .filename-pill {
     display: inline-block;
     background: #FFFFFF;
@@ -162,14 +150,6 @@ st.markdown("""
     box-shadow: 0 1px 6px rgba(0,0,0,0.06);
   }
 
-  /* ── Output image container ── */
-  .output-wrap {
-    background: #FFFFFF;
-    border-radius: 14px;
-    padding: 16px;
-    box-shadow: 0 4px 24px rgba(0,0,0,0.08);
-  }
-
   /* ── Divider ── */
   hr {
     border: none !important;
@@ -177,7 +157,7 @@ st.markdown("""
     margin: 1.5rem 0 !important;
   }
 
-  /* ── Spinner text ── */
+  /* ── Spinner ── */
   [data-testid="stSpinner"] p {
     color: #555 !important;
     font-style: italic !important;
@@ -187,32 +167,39 @@ st.markdown("""
 
 
 # ─────────────────────────────────────────────
-# HELPER: extract readable name from filename
+# HELPERS
 # ─────────────────────────────────────────────
 def fabric_name_from_file(uploaded_file) -> str:
-    """
-    Turns 'Structured_Cotton.jpg' → 'Structured Cotton'
-    Turns 'airy-open-weave-linen.PNG' → 'Airy Open Weave Linen'
-    """
-    stem = Path(uploaded_file.name).stem          # strip extension
-    name = stem.replace("_", " ").replace("-", " ")
-    return name.title()
+    """'Structured_Cotton.jpg' → 'Structured Cotton'"""
+    stem = Path(uploaded_file.name).stem
+    return stem.replace("_", " ").replace("-", " ").title()
 
 
-def build_prompt(fabric_name: str) -> tuple[str, str]:
-    prompt = (
-        f"Fashion editorial photograph. "
-        f"Fabric swap: re-materialize the garment using {fabric_name} textile. "
-        f"Preserve the exact body pose, silhouette, identity, and background. "
-        f"Apply the fabric texture with geometric continuity across all 3D garment "
-        f"curves, folds, and compressed zones. "
-        f"High resolution, professional studio lighting, minimalist lookbook aesthetic."
+def pil_to_bytes(img: Image.Image, fmt="JPEG") -> bytes:
+    buf = io.BytesIO()
+    img.save(buf, format=fmt, quality=95)
+    return buf.getvalue()
+
+
+def build_gemini_prompt(model_name: str, fabric_name: str,
+                        weight: str, opacity: str) -> str:
+    """
+    Constructs the structured fabric-swap instruction sent to Gemini.
+    Fills in the blanks in the required prompt template.
+    """
+    return (
+        f"Task: 1:1 Fabric Pattern Swap.\n"
+        f"Target Garment: The garment worn by the model in the first image.\n"
+        f"Strict Constraints: Lock model identity, face, pose, background, "
+        f"and all non-targeted garments to remain 100% identical.\n"
+        f"Physics Rule: The original garment is {weight.lower()}; "
+        f"the reference fabric is {fabric_name} ({opacity.lower()}).\n"
+        f"Action: Preserve the original garment's exact silhouette. "
+        f"Do not alter the fit or calculate new physics. "
+        f"Simply replace the surface look, color and volume with the new "
+        f"reference fabric shown in the second image, mapping it realistically "
+        f"to the current folds and lighting of the original garment."
     )
-    negative = (
-        "deformed body, changed silhouette, different pose, different person, "
-        "wrong proportions, blurry, low quality, watermark, artifacts, nudity"
-    )
-    return prompt, negative
 
 
 # ─────────────────────────────────────────────
@@ -228,26 +215,26 @@ st.markdown(
 st.markdown("<hr>", unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────
-# DEMO MODE TOGGLE (top of page, always visible)
+# DEMO MODE TOGGLE
 # ─────────────────────────────────────────────
 demo_mode = st.toggle(
     "🎭  Demo Mode (Offline — safe for live presentations)",
     value=False,
     help=(
-        "ON  → Bypasses the API entirely. Simulates loading, then shows your "
+        "ON  → Bypasses the API entirely. Simulates loading then shows your "
         "pre-generated image. Guaranteed not to fail during your presentation.\n"
-        "OFF → Calls the Replicate API live with your uploaded images."
+        "OFF → Calls the Gemini API live with your uploaded images."
     )
 )
 if demo_mode:
     st.success("**Demo Mode ON** — API is bypassed. Pre-generated image will display after simulated loading.")
 else:
-    st.info("**Live Mode** — Replicate img2img API will be called on Execute.")
+    st.info("**Live Mode** — Google Gemini image-editing API will be called on Execute.")
 
 st.markdown("<hr>", unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────
-# MAIN LAYOUT: 2 columns
+# MAIN LAYOUT — 2 columns
 # ─────────────────────────────────────────────
 col_left, col_right = st.columns([1, 1.4], gap="large")
 
@@ -294,6 +281,23 @@ with col_left:
             unsafe_allow_html=True
         )
 
+    st.markdown(" ")
+
+    # ── Physics hints (lightweight UI, feeds into prompt) ────
+    with st.expander("⚙️  Optional physics hints", expanded=False):
+        garment_weight = st.radio(
+            "Original garment weight:",
+            ["ultra-lightweight", "medium-weight", "heavy/structured"],
+            index=0,
+            horizontal=True
+        )
+        fabric_opacity = st.radio(
+            "Reference fabric opacity:",
+            ["fully opaque", "semi-sheer", "translucent"],
+            index=0,
+            horizontal=True
+        )
+
     st.markdown("<br>", unsafe_allow_html=True)
     execute_btn = st.button("🚀  Execute Fabric Swap", use_container_width=True)
 
@@ -304,7 +308,7 @@ with col_right:
     st.subheader("Output Viewport")
     st.markdown(" ")
 
-    output_slot  = st.empty()
+    output_slot   = st.empty()
     download_slot = st.empty()
 
     output_slot.markdown(
@@ -322,23 +326,18 @@ with col_right:
 
         # ── DEMO MODE ────────────────────────
         if demo_mode:
-            with st.spinner("Simulating neural engine… (Demo Mode)"):
+            with st.spinner("Simulating Gemini engine… (Demo Mode)"):
                 time.sleep(3)
             try:
                 demo_img = Image.open(DEMO_IMAGE_PATH)
-                output_slot.markdown(
-                    '<div class="output-wrap">', unsafe_allow_html=True
-                )
                 output_slot.image(
                     demo_img,
                     caption="Demo Output — pre-generated result",
                     use_container_width=True
                 )
-                buf = io.BytesIO()
-                demo_img.save(buf, format="JPEG", quality=95)
                 download_slot.download_button(
                     label="⬇️  Download as JPG",
-                    data=buf.getvalue(),
+                    data=pil_to_bytes(demo_img),
                     file_name=f"neural_threads_demo_{int(time.time())}.jpg",
                     mime="image/jpeg",
                     use_container_width=True
@@ -358,54 +357,60 @@ with col_right:
                 output_slot.warning("⚠️  Please upload a Reference Fabric Swatch.")
             else:
                 fabric_name = fabric_name_from_file(uploaded_fabric)
-                prompt, negative_prompt = build_prompt(fabric_name)
+                prompt_text = build_gemini_prompt(
+                    model_name=uploaded_model.name,
+                    fabric_name=fabric_name,
+                    weight=garment_weight,
+                    opacity=fabric_opacity
+                )
 
-                with st.spinner(f"Neural engine running… applying '{fabric_name}' fabric…"):
+                with st.spinner(f"Gemini is swapping fabric: '{fabric_name}'…"):
                     try:
-                        model_bytes  = uploaded_model.read()
-                        model_stream = io.BytesIO(model_bytes)
+                        # Load both images as PIL objects
+                        model_img  = Image.open(io.BytesIO(uploaded_model.read()))
+                        fabric_img = Image.open(io.BytesIO(uploaded_fabric.read()))
 
-                        output = replicate.run(
-                            # SDXL img2img — current latest version (verified May 2026)
-                            # Full hash required — short hashes cause 422 errors.
-                            # To use IP-Adapter (texture injection from swatch image), replace with:
-                            # "lucataco/ip-adapter-sdxl:a4a8bafd6089e1716b06057c42b19378250d008b4fe1c752748f07b03de89e6"
-                            "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
-                            input={
-                                "image":           model_stream,
-                                "prompt":          prompt,
-                                "negative_prompt": negative_prompt,
-                                # 0.55–0.70: sweet spot for silhouette lock + fabric change
-                                # Lower = closer to source image
-                                "prompt_strength": 0.62,
-                                "num_inference_steps": 30,
-                                "guidance_scale":  7.5,
-                                "scheduler":       "DPMSolverMultistep",
-                                "num_outputs":     1,
-                            }
+                        # ── Gemini API call ───────────────────────
+                        # Model: gemini-2.5-flash-image (stable, image-editing capable)
+                        # Contents: [text prompt, base model image, fabric swatch image]
+                        # responseModalities: ["IMAGE"] returns only the edited image
+                        response = client.models.generate_content(
+                            model="gemini-2.5-flash-image",
+                            contents=[prompt_text, model_img, fabric_img],
+                            config=types.GenerateContentConfig(
+                                response_modalities=["IMAGE"]
+                            )
                         )
 
-                        result_url      = output[0]
-                        result_bytes    = requests.get(result_url).content
-                        result_img      = Image.open(io.BytesIO(result_bytes))
+                        # ── Extract image from response ───────────
+                        result_img = None
+                        for part in response.candidates[0].content.parts:
+                            if part.inline_data is not None:
+                                result_img = Image.open(
+                                    io.BytesIO(part.inline_data.data)
+                                )
+                                break
 
-                        output_slot.image(
-                            result_img,
-                            caption=f"Fabric swap — {fabric_name}",
-                            use_container_width=True
-                        )
+                        if result_img is None:
+                            output_slot.error(
+                                "Gemini returned a response but no image was found. "
+                                "The model may have declined the request due to safety "
+                                "filters or an ambiguous prompt. Try adjusting your "
+                                "physics hints or re-uploading cleaner swatch images."
+                            )
+                        else:
+                            output_slot.image(
+                                result_img,
+                                caption=f"Fabric swap — {fabric_name}",
+                                use_container_width=True
+                            )
+                            download_slot.download_button(
+                                label="⬇️  Download as JPG",
+                                data=pil_to_bytes(result_img),
+                                file_name=f"neural_threads_{int(time.time())}.jpg",
+                                mime="image/jpeg",
+                                use_container_width=True
+                            )
 
-                        buf = io.BytesIO()
-                        result_img.save(buf, format="JPEG", quality=95)
-                        download_slot.download_button(
-                            label="⬇️  Download as JPG",
-                            data=buf.getvalue(),
-                            file_name=f"neural_threads_{int(time.time())}.jpg",
-                            mime="image/jpeg",
-                            use_container_width=True
-                        )
-
-                    except replicate.exceptions.ReplicateError as e:
-                        output_slot.error(f"Replicate API error: {e}")
                     except Exception as e:
-                        output_slot.error(f"Unexpected error: {e}")
+                        output_slot.error(f"Gemini API error: {e}")
