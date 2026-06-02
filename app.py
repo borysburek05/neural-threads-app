@@ -23,7 +23,18 @@ st.set_page_config(
 # Locally → .streamlit/secrets.toml (add to .gitignore)
 # ─────────────────────────────────────────────
 os.environ["GOOGLE_API_KEY"] = st.secrets["GOOGLE_API_KEY"]
-client = genai.Client()
+
+# Timeout is in milliseconds. 180_000 = 3 minutes.
+# retry_options auto-retries on 503 (the exact error you were hitting).
+_http_opts = types.HttpOptions(
+    timeout=180_000,
+    retry_options=types.HttpRetryOptions(
+        attempts=3,
+        initial_delay=2.0,
+        http_status_codes=[408, 429, 500, 502, 503, 504],
+    ),
+)
+client = genai.Client(http_options=_http_opts)
 
 # ─────────────────────────────────────────────
 # DEMO MODE — place a pre-generated JPG in the
@@ -364,53 +375,92 @@ with col_right:
                     opacity=fabric_opacity
                 )
 
-                with st.spinner(f"Gemini is swapping fabric: '{fabric_name}'…"):
+                with st.spinner(f"Gemini is swapping fabric: '{fabric_name}'… (may take up to 2 min)"):
                     try:
-                        # Load both images as PIL objects
-                        model_img  = Image.open(io.BytesIO(uploaded_model.read()))
-                        fabric_img = Image.open(io.BytesIO(uploaded_fabric.read()))
+                        # Read uploaded bytes once, then open as PIL
+                        model_bytes  = uploaded_model.read()
+                        fabric_bytes = uploaded_fabric.read()
+                        model_img    = Image.open(io.BytesIO(model_bytes)).convert("RGB")
+                        fabric_img   = Image.open(io.BytesIO(fabric_bytes)).convert("RGB")
 
-                        # ── Gemini API call ───────────────────────
-                        # Model: gemini-2.5-flash-image (stable, image-editing capable)
-                        # Contents: [text prompt, base model image, fabric swatch image]
-                        # responseModalities: ["IMAGE"] returns only the edited image
+                        # ── Gemini API call ───────────────────────────────────────────
+                        # Model  : gemini-2.5-flash-image
+                        #          The correct image-editing model for AI Studio keys.
+                        #          (imagen-3.0-capability-001 edit_image() requires
+                        #           Vertex AI — not available with an AI Studio key.)
+                        #
+                        # Contents order matters:
+                        #   1. text prompt  — task instructions
+                        #   2. model_img    — the garment photo to edit
+                        #   3. fabric_img   — the reference texture to apply
+                        #
+                        # response_modalities=["IMAGE"] forces an image-only response,
+                        # preventing the model from returning text instead of pixels.
+                        # ─────────────────────────────────────────────────────────────
                         response = client.models.generate_content(
                             model="gemini-2.5-flash-image",
-                            contents=[prompt_text, model_img, fabric_img],
+                            contents=[
+                                prompt_text,
+                                model_img,
+                                fabric_img,
+                            ],
                             config=types.GenerateContentConfig(
-                                response_modalities=["IMAGE"]
-                            )
+                                response_modalities=["IMAGE"],
+                                http_options=types.HttpOptions(timeout=180_000),
+                            ),
                         )
 
-                        # ── Extract image from response ───────────
-                        result_img = None
+                        # ── Extract image from response parts ─────────────────────────
+                        # The response is a list of parts; find the first inline_data
+                        # part whose mime_type starts with "image/".
+                        result_img   = None
+                        text_parts   = []
+
                         for part in response.candidates[0].content.parts:
-                            if part.inline_data is not None:
+                            if part.inline_data is not None and \
+                               part.inline_data.mime_type.startswith("image/"):
                                 result_img = Image.open(
                                     io.BytesIO(part.inline_data.data)
-                                )
+                                ).convert("RGB")
                                 break
+                            if part.text:
+                                text_parts.append(part.text)
 
-                        if result_img is None:
-                            output_slot.error(
-                                "Gemini returned a response but no image was found. "
-                                "The model may have declined the request due to safety "
-                                "filters or an ambiguous prompt. Try adjusting your "
-                                "physics hints or re-uploading cleaner swatch images."
-                            )
-                        else:
+                        # ── Render result ─────────────────────────────────────────────
+                        if result_img is not None:
                             output_slot.image(
                                 result_img,
                                 caption=f"Fabric swap — {fabric_name}",
-                                use_container_width=True
+                                use_container_width=True,
                             )
                             download_slot.download_button(
                                 label="⬇️  Download as JPG",
                                 data=pil_to_bytes(result_img),
                                 file_name=f"neural_threads_{int(time.time())}.jpg",
                                 mime="image/jpeg",
-                                use_container_width=True
+                                use_container_width=True,
+                            )
+                        else:
+                            # Model returned text instead of an image — show it so
+                            # you can see exactly why it refused or what went wrong.
+                            fallback_msg = (
+                                " ".join(text_parts)
+                                if text_parts
+                                else "No image or explanation returned."
+                            )
+                            output_slot.warning(
+                                f"⚠️  Gemini returned a text response instead of an "
+                                f"image. This usually means the safety filter blocked "
+                                f"the request, or the model needs more context.\n\n"
+                                f"**Model said:** {fallback_msg}\n\n"
+                                f"**Fix:** Try simplifying the prompt, using a plain "
+                                f"white-background fabric swatch, or toggling Demo Mode "
+                                f"for your presentation."
                             )
 
                     except Exception as e:
-                        output_slot.error(f"Gemini API error: {e}")
+                        output_slot.error(
+                            f"Gemini API error: {e}\n\n"
+                            f"If this is a 503, the timeout fix is already applied — "
+                            f"try again in a few seconds."
+                        )
