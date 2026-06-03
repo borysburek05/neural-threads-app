@@ -24,8 +24,6 @@ st.set_page_config(
 # ─────────────────────────────────────────────
 os.environ["GOOGLE_API_KEY"] = st.secrets["GOOGLE_API_KEY"]
 
-# Timeout is in milliseconds. 180_000 = 3 minutes.
-# retry_options auto-retries on 503 (the exact error you were hitting).
 _http_opts = types.HttpOptions(
     timeout=180_000,
     retry_options=types.HttpRetryOptions(
@@ -43,23 +41,19 @@ client = genai.Client(http_options=_http_opts)
 DEMO_IMAGE_PATH = "demo_output.jpg"
 
 # ─────────────────────────────────────────────
-# LOOKBOOK CSS — unchanged from previous version
+# LOOKBOOK CSS
 # ─────────────────────────────────────────────
 st.markdown("""
 <style>
-  /* ── Hide Streamlit chrome ── */
   #MainMenu, footer, header { visibility: hidden; }
   .stDeployButton { display: none; }
 
-  /* ── Global background & font ── */
   html, body, [data-testid="stAppViewContainer"],
   [data-testid="stApp"], .main {
     background-color: #FAF7F2 !important;
     color: #000000 !important;
     font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif !important;
   }
-
-  /* ── Page title ── */
   h1 {
     font-size: 2rem !important;
     font-weight: 800 !important;
@@ -67,22 +61,15 @@ st.markdown("""
     color: #000000 !important;
     margin-bottom: 0 !important;
   }
-
-  /* ── Subheaders ── */
   h2, h3 {
     font-weight: 700 !important;
     letter-spacing: -0.02em !important;
     color: #000000 !important;
   }
-
-  /* ── Caption / body text ── */
-  p, .stMarkdown p, label,
-  [data-testid="stText"] {
+  p, .stMarkdown p, label, [data-testid="stText"] {
     color: #333333 !important;
     font-size: 0.875rem !important;
   }
-
-  /* ── File uploader box ── */
   [data-testid="stFileUploader"] {
     background: #FFFFFF !important;
     border: none !important;
@@ -99,8 +86,6 @@ st.markdown("""
     border-color: #FF7F50 !important;
     background: #FFF4EE !important;
   }
-
-  /* ── Primary Execute button ── */
   .stButton > button {
     background-color: #FF7F50 !important;
     color: #FFFFFF !important;
@@ -118,8 +103,6 @@ st.markdown("""
     transform: translateY(-1px) !important;
   }
   .stButton > button:active { transform: translateY(0) !important; }
-
-  /* ── Download button ── */
   .stDownloadButton > button {
     background-color: #000000 !important;
     color: #FFFFFF !important;
@@ -132,21 +115,15 @@ st.markdown("""
     transition: background 0.2s !important;
   }
   .stDownloadButton > button:hover { background-color: #333333 !important; }
-
-  /* ── Toggle ── */
   [data-testid="stToggle"] label {
     color: #000000 !important;
     font-weight: 600 !important;
   }
-
-  /* ── Alerts ── */
   [data-testid="stAlert"] {
     border-radius: 10px !important;
     border: none !important;
     box-shadow: 0 2px 10px rgba(0,0,0,0.06) !important;
   }
-
-  /* ── Filename pill ── */
   .filename-pill {
     display: inline-block;
     background: #FFFFFF;
@@ -160,15 +137,18 @@ st.markdown("""
     margin-bottom: 8px;
     box-shadow: 0 1px 6px rgba(0,0,0,0.06);
   }
-
-  /* ── Divider ── */
+  .thumb-label {
+    font-size: 0.72rem;
+    color: #999;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    margin-bottom: 4px;
+  }
   hr {
     border: none !important;
     border-top: 1px solid #EDE8E0 !important;
     margin: 1.5rem 0 !important;
   }
-
-  /* ── Spinner ── */
   [data-testid="stSpinner"] p {
     color: #555 !important;
     font-style: italic !important;
@@ -192,24 +172,37 @@ def pil_to_bytes(img: Image.Image, fmt="JPEG") -> bytes:
     return buf.getvalue()
 
 
-def build_gemini_prompt(model_name: str, fabric_name: str,
-                        weight: str, opacity: str) -> str:
+def match_dimensions(result_img: Image.Image, target_img: Image.Image) -> Image.Image:
     """
-    Constructs the structured fabric-swap instruction sent to Gemini.
-    Fills in the blanks in the required prompt template.
+    Resize result_img to exactly match target_img's pixel dimensions.
+    Uses LANCZOS for high-quality downscaling, BICUBIC for upscaling.
+    Aspect ratio of result is NOT preserved — we force an exact pixel match
+    so the output viewport sits flush against the input in the UI.
+    """
+    target_w, target_h = target_img.size
+    if result_img.size == (target_w, target_h):
+        return result_img
+    resample = Image.LANCZOS if (
+        result_img.width > target_w or result_img.height > target_h
+    ) else Image.BICUBIC
+    return result_img.resize((target_w, target_h), resample)
+
+
+def build_gemini_prompt(fabric_name: str) -> str:
+    """
+    Builds the structured fabric-swap instruction sent to Gemini.
+    Strictly focused on 1:1 surface mapping — no physics variables.
     """
     return (
         f"Task: 1:1 Fabric Pattern Swap.\n"
         f"Target Garment: The garment worn by the model in the first image.\n"
         f"Strict Constraints: Lock model identity, face, pose, background, "
         f"and all non-targeted garments to remain 100% identical.\n"
-        f"Physics Rule: The original garment is {weight.lower()}; "
-        f"the reference fabric is {fabric_name} ({opacity.lower()}).\n"
         f"Action: Preserve the original garment's exact silhouette. "
         f"Do not alter the fit or calculate new physics. "
-        f"Simply replace the surface look, color and volume with the new "
-        f"reference fabric shown in the second image, mapping it realistically "
-        f"to the current folds and lighting of the original garment."
+        f"Simply replace the surface look, color and volume with the reference "
+        f"fabric '{fabric_name}' shown in the second image, mapping it "
+        f"realistically to the current folds and lighting of the original garment."
     )
 
 
@@ -256,7 +249,7 @@ with col_left:
     st.subheader("Source Assets")
     st.markdown(" ")
 
-    # ── Model Image ──────────────────────────
+    # ── Base Model Image ─────────────────────
     st.markdown("**Base Model Image**")
     uploaded_model = st.file_uploader(
         "Upload the garment photo you want to swap fabric on",
@@ -269,10 +262,15 @@ with col_left:
             f'<div class="filename-pill">📎 {uploaded_model.name}</div>',
             unsafe_allow_html=True
         )
+        # Show thumbnail immediately on upload
+        st.markdown('<div class="thumb-label">Preview</div>', unsafe_allow_html=True)
+        model_preview = Image.open(io.BytesIO(uploaded_model.read())).convert("RGB")
+        st.image(model_preview, width=300)
+        uploaded_model.seek(0)   # rewind so the bytes are available again on Execute
 
     st.markdown(" ")
 
-    # ── Fabric Swatch ────────────────────────
+    # ── Reference Fabric Swatch ──────────────
     st.markdown("**Reference Fabric Swatch**")
     uploaded_fabric = st.file_uploader(
         "Upload the fabric texture you want applied",
@@ -291,23 +289,11 @@ with col_left:
             f"Detected fabric: <strong style='color:#FF7F50'>{detected_name}</strong></p>",
             unsafe_allow_html=True
         )
-
-    st.markdown(" ")
-
-    # ── Physics hints (lightweight UI, feeds into prompt) ────
-    with st.expander("⚙️  Optional physics hints", expanded=False):
-        garment_weight = st.radio(
-            "Original garment weight:",
-            ["ultra-lightweight", "medium-weight", "heavy/structured"],
-            index=0,
-            horizontal=True
-        )
-        fabric_opacity = st.radio(
-            "Reference fabric opacity:",
-            ["fully opaque", "semi-sheer", "translucent"],
-            index=0,
-            horizontal=True
-        )
+        # Show thumbnail immediately on upload
+        st.markdown('<div class="thumb-label">Preview</div>', unsafe_allow_html=True)
+        fabric_preview = Image.open(io.BytesIO(uploaded_fabric.read())).convert("RGB")
+        st.image(fabric_preview, width=300)
+        uploaded_fabric.seek(0)  # rewind so the bytes are available again on Execute
 
     st.markdown("<br>", unsafe_allow_html=True)
     execute_btn = st.button("🚀  Execute Fabric Swap", use_container_width=True)
@@ -340,7 +326,14 @@ with col_right:
             with st.spinner("Simulating Gemini engine… (Demo Mode)"):
                 time.sleep(3)
             try:
-                demo_img = Image.open(DEMO_IMAGE_PATH)
+                demo_img = Image.open(DEMO_IMAGE_PATH).convert("RGB")
+
+                # Resize demo image to match uploaded model dimensions (if available)
+                if uploaded_model:
+                    ref = Image.open(io.BytesIO(uploaded_model.read())).convert("RGB")
+                    uploaded_model.seek(0)
+                    demo_img = match_dimensions(demo_img, ref)
+
                 output_slot.image(
                     demo_img,
                     caption="Demo Output — pre-generated result",
@@ -368,35 +361,18 @@ with col_right:
                 output_slot.warning("⚠️  Please upload a Reference Fabric Swatch.")
             else:
                 fabric_name = fabric_name_from_file(uploaded_fabric)
-                prompt_text = build_gemini_prompt(
-                    model_name=uploaded_model.name,
-                    fabric_name=fabric_name,
-                    weight=garment_weight,
-                    opacity=fabric_opacity
-                )
+                prompt_text = build_gemini_prompt(fabric_name)
 
                 with st.spinner(f"Gemini is swapping fabric: '{fabric_name}'… (may take up to 2 min)"):
                     try:
-                        # Read uploaded bytes once, then open as PIL
                         model_bytes  = uploaded_model.read()
                         fabric_bytes = uploaded_fabric.read()
                         model_img    = Image.open(io.BytesIO(model_bytes)).convert("RGB")
                         fabric_img   = Image.open(io.BytesIO(fabric_bytes)).convert("RGB")
 
-                        # ── Gemini API call ───────────────────────────────────────────
-                        # Model  : gemini-2.5-flash-image
-                        #          The correct image-editing model for AI Studio keys.
-                        #          (imagen-3.0-capability-001 edit_image() requires
-                        #           Vertex AI — not available with an AI Studio key.)
-                        #
-                        # Contents order matters:
-                        #   1. text prompt  — task instructions
-                        #   2. model_img    — the garment photo to edit
-                        #   3. fabric_img   — the reference texture to apply
-                        #
-                        # response_modalities=["IMAGE"] forces an image-only response,
-                        # preventing the model from returning text instead of pixels.
-                        # ─────────────────────────────────────────────────────────────
+                        # Capture target dimensions before API call
+                        target_w, target_h = model_img.size
+
                         response = client.models.generate_content(
                             model="gemini-2.5-flash-image",
                             contents=[
@@ -410,11 +386,9 @@ with col_right:
                             ),
                         )
 
-                        # ── Extract image from response parts ─────────────────────────
-                        # The response is a list of parts; find the first inline_data
-                        # part whose mime_type starts with "image/".
-                        result_img   = None
-                        text_parts   = []
+                        # Extract image from response parts
+                        result_img = None
+                        text_parts = []
 
                         for part in response.candidates[0].content.parts:
                             if part.inline_data is not None and \
@@ -426,8 +400,12 @@ with col_right:
                             if part.text:
                                 text_parts.append(part.text)
 
-                        # ── Render result ─────────────────────────────────────────────
                         if result_img is not None:
+                            # Force exact pixel match to original model image
+                            result_img = match_dimensions(
+                                result_img,
+                                Image.new("RGB", (target_w, target_h))
+                            )
                             output_slot.image(
                                 result_img,
                                 caption=f"Fabric swap — {fabric_name}",
@@ -441,8 +419,6 @@ with col_right:
                                 use_container_width=True,
                             )
                         else:
-                            # Model returned text instead of an image — show it so
-                            # you can see exactly why it refused or what went wrong.
                             fallback_msg = (
                                 " ".join(text_parts)
                                 if text_parts
@@ -464,3 +440,4 @@ with col_right:
                             f"If this is a 503, the timeout fix is already applied — "
                             f"try again in a few seconds."
                         )
+                    
