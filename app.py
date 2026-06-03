@@ -174,18 +174,26 @@ def pil_to_bytes(img: Image.Image, fmt="JPEG") -> bytes:
 
 def match_dimensions(result_img: Image.Image, target_img: Image.Image) -> Image.Image:
     """
-    Resize result_img to exactly match target_img's pixel dimensions.
-    Uses LANCZOS for high-quality downscaling, BICUBIC for upscaling.
-    Aspect ratio of result is NOT preserved — we force an exact pixel match
-    so the output viewport sits flush against the input in the UI.
+    Scale result_img so its longer side matches the target's longer side,
+    preserving the result's own aspect ratio (no stretching/squashing).
+    Then crop or pad symmetrically to hit the exact target pixel dimensions.
     """
     target_w, target_h = target_img.size
     if result_img.size == (target_w, target_h):
         return result_img
-    resample = Image.LANCZOS if (
-        result_img.width > target_w or result_img.height > target_h
-    ) else Image.BICUBIC
-    return result_img.resize((target_w, target_h), resample)
+
+    # Step 1 — scale preserving aspect ratio to fill target box
+    src_w, src_h = result_img.size
+    scale = max(target_w / src_w, target_h / src_h)
+    scaled_w = round(src_w * scale)
+    scaled_h = round(src_h * scale)
+    resample = Image.LANCZOS if scale < 1 else Image.BICUBIC
+    scaled = result_img.resize((scaled_w, scaled_h), resample)
+
+    # Step 2 — centre-crop to exact target dimensions
+    left = (scaled_w - target_w) // 2
+    top  = (scaled_h - target_h) // 2
+    return scaled.crop((left, top, left + target_w, top + target_h))
 
 
 def build_gemini_prompt(fabric_name: str, garment_zone: str, fabric_color: str) -> str:
@@ -263,7 +271,53 @@ with col_left:
     st.subheader("Input")
     st.markdown(" ")
 
-    # ── Garment Zone ─────────────────────────
+    # ── Base Model Image ─────────────────────
+    st.markdown("**Base Model Image**")
+    uploaded_model = st.file_uploader(
+        "Upload the garment photo you want to swap fabric on",
+        type=["jpg", "jpeg", "png"],
+        key="model_upload",
+        label_visibility="collapsed"
+    )
+    if uploaded_model:
+        st.markdown(
+            f'<div class="filename-pill">📎 {uploaded_model.name}</div>',
+            unsafe_allow_html=True
+        )
+        st.markdown('<div class="thumb-label">Preview</div>', unsafe_allow_html=True)
+        model_preview = Image.open(io.BytesIO(uploaded_model.read())).convert("RGB")
+        st.image(model_preview, width=300)
+        uploaded_model.seek(0)
+
+    st.markdown(" ")
+
+    # ── Reference Fabric Swatch ──────────────
+    st.markdown("**Reference Fabric Swatch**")
+    uploaded_fabric = st.file_uploader(
+        "Upload the fabric texture you want applied",
+        type=["jpg", "jpeg", "png"],
+        key="fabric_upload",
+        label_visibility="collapsed"
+    )
+    if uploaded_fabric:
+        detected_name = fabric_name_from_file(uploaded_fabric)
+        st.markdown(
+            f'<div class="filename-pill">🧵 {uploaded_fabric.name}</div>',
+            unsafe_allow_html=True
+        )
+        st.markdown(
+            f"<p style='font-size:0.8rem;color:#888;margin-top:2px;'>"
+            f"Detected fabric: <strong style='color:#FF7F50'>{detected_name}</strong></p>",
+            unsafe_allow_html=True
+        )
+        st.markdown('<div class="thumb-label">Preview</div>', unsafe_allow_html=True)
+        fabric_preview = Image.open(io.BytesIO(uploaded_fabric.read())).convert("RGB")
+        st.image(fabric_preview, width=300)
+        uploaded_fabric.seek(0)
+
+    # ── Settings (below images) ───────────────
+    st.markdown(" ")
+    st.markdown("<hr>", unsafe_allow_html=True)
     st.markdown("**Target Garment**")
     garment_zone = st.radio(
         "Which part of the outfit to swap:",
@@ -278,8 +332,6 @@ with col_left:
     )
 
     st.markdown(" ")
-
-    # ── Fabric Color ──────────────────────────
     st.markdown("**Fabric Color**")
     st.markdown(
         "<p style='font-size:0.78rem;color:#999;margin-top:-6px;margin-bottom:8px;'>"
@@ -308,54 +360,6 @@ with col_left:
         key="color_select"
     )
     fabric_color = COLOR_PRESETS[color_label]
-
-    st.markdown(" ")
-
-    # ── Base Model Image ─────────────────────
-    st.markdown("**Base Model Image**")
-    uploaded_model = st.file_uploader(
-        "Upload the garment photo you want to swap fabric on",
-        type=["jpg", "jpeg", "png"],
-        key="model_upload",
-        label_visibility="collapsed"
-    )
-    if uploaded_model:
-        st.markdown(
-            f'<div class="filename-pill">📎 {uploaded_model.name}</div>',
-            unsafe_allow_html=True
-        )
-        # Show thumbnail immediately on upload
-        st.markdown('<div class="thumb-label">Preview</div>', unsafe_allow_html=True)
-        model_preview = Image.open(io.BytesIO(uploaded_model.read())).convert("RGB")
-        st.image(model_preview, width=300)
-        uploaded_model.seek(0)   # rewind so the bytes are available again on Execute
-
-    st.markdown(" ")
-
-    # ── Reference Fabric Swatch ──────────────
-    st.markdown("**Reference Fabric Swatch**")
-    uploaded_fabric = st.file_uploader(
-        "Upload the fabric texture you want applied",
-        type=["jpg", "jpeg", "png"],
-        key="fabric_upload",
-        label_visibility="collapsed"
-    )
-    if uploaded_fabric:
-        detected_name = fabric_name_from_file(uploaded_fabric)
-        st.markdown(
-            f'<div class="filename-pill">🧵 {uploaded_fabric.name}</div>',
-            unsafe_allow_html=True
-        )
-        st.markdown(
-            f"<p style='font-size:0.8rem;color:#888;margin-top:2px;'>"
-            f"Detected fabric: <strong style='color:#FF7F50'>{detected_name}</strong></p>",
-            unsafe_allow_html=True
-        )
-        # Show thumbnail immediately on upload
-        st.markdown('<div class="thumb-label">Preview</div>', unsafe_allow_html=True)
-        fabric_preview = Image.open(io.BytesIO(uploaded_fabric.read())).convert("RGB")
-        st.image(fabric_preview, width=300)
-        uploaded_fabric.seek(0)  # rewind so the bytes are available again on Execute
 
     st.markdown("<br>", unsafe_allow_html=True)
     execute_btn = st.button("🚀  Execute Fabric Swap", use_container_width=True)
@@ -468,38 +472,13 @@ with col_right:
                                 text_parts.append(part.text)
 
                         if result_img is not None:
-                            # Force exact pixel match to original model image
                             result_img = match_dimensions(
                                 result_img,
                                 Image.new("RGB", (target_w, target_h))
                             )
-                            output_slot.image(
-                                result_img,
-                                caption=f"Fabric swap — {fabric_name}",
-                                use_container_width=True,
-                            )
-                            download_slot.download_button(
-                                label="⬇️  Download as JPG",
-                                data=pil_to_bytes(result_img),
-                                file_name=f"eikon_{int(time.time())}.jpg",
-                                mime="image/jpeg",
-                                use_container_width=True,
-                            )
-                        else:
-                            fallback_msg = (
-                                " ".join(text_parts)
-                                if text_parts
-                                else "No image or explanation returned."
-                            )
-                            output_slot.warning(
-                                f"⚠️  Gemini returned a text response instead of an "
-                                f"image. This usually means the safety filter blocked "
-                                f"the request, or the model needs more context.\n\n"
-                                f"**Model said:** {fallback_msg}\n\n"
-                                f"**Fix:** Try simplifying the prompt, using a plain "
-                                f"white-background fabric swatch, or toggling Demo Mode "
-                                f"for your presentation."
-                            )
+                            # Store in session state so download doesn't wipe it
+                            st.session_state["last_result"] = result_img
+                            st.session_state["last_fabric"] = fabric_name
 
                     except Exception as e:
                         output_slot.error(
@@ -507,3 +486,18 @@ with col_right:
                             f"If this is a 503, the timeout fix is already applied — "
                             f"try again in a few seconds."
                         )
+
+            # ── Render outside the spinner so it survives re-runs ──
+            if "last_result" in st.session_state:
+                output_slot.image(
+                    st.session_state["last_result"],
+                    caption=f"Fabric swap — {st.session_state.get('last_fabric', '')}",
+                    use_container_width=True,
+                )
+                download_slot.download_button(
+                    label="⬇️  Download as JPG",
+                    data=pil_to_bytes(st.session_state["last_result"]),
+                    file_name=f"eikon_{int(time.time())}.jpg",
+                    mime="image/jpeg",
+                    use_container_width=True,
+                )
