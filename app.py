@@ -188,21 +188,39 @@ def match_dimensions(result_img: Image.Image, target_img: Image.Image) -> Image.
     return result_img.resize((target_w, target_h), resample)
 
 
-def build_gemini_prompt(fabric_name: str) -> str:
+def build_gemini_prompt(fabric_name: str, garment_zone: str, fabric_color: str) -> str:
     """
     Builds the structured fabric-swap instruction sent to Gemini.
-    Strictly focused on 1:1 surface mapping — no physics variables.
+    garment_zone : "upper body" or "lower body"
+    fabric_color : plain English color name e.g. "red", "navy blue"
     """
+    if garment_zone == "upper":
+        target_desc = (
+            "the upper-body garment worn by the model "
+            "(e.g. t-shirt, jacket, long-sleeve shirt, hoodie — "
+            "whichever upper garment is present)"
+        )
+        lock_desc = "Keep the lower-body clothing, face, identity, pose, and background 100% identical."
+    else:
+        target_desc = (
+            "the lower-body garment worn by the model "
+            "(e.g. trousers, jeans, skirt, shorts — "
+            "whichever lower garment is present)"
+        )
+        lock_desc = "Keep the upper-body clothing, face, identity, pose, and background 100% identical."
+
     return (
-        f"Task: 1:1 Fabric Pattern Swap.\n"
-        f"Target Garment: The garment worn by the model in the first image.\n"
-        f"Strict Constraints: Lock model identity, face, pose, background, "
-        f"and all non-targeted garments to remain 100% identical.\n"
-        f"Action: Preserve the original garment's exact silhouette. "
-        f"Do not alter the fit or calculate new physics. "
-        f"Simply replace the surface look, color and volume with the reference "
-        f"fabric '{fabric_name}' shown in the second image, mapping it "
-        f"realistically to the current folds and lighting of the original garment."
+        f"Task: 1:1 Fabric & Color Swap on a specific garment.\n\n"
+        f"Target Garment: Apply the swap ONLY to {target_desc}.\n\n"
+        f"Color Instruction: The new fabric MUST be {fabric_color}. "
+        f"This color overrides whatever color appears in the reference swatch. "
+        f"Use the swatch only for texture, weave pattern, and material feel — not its color.\n\n"
+        f"Strict Constraints: {lock_desc}\n\n"
+        f"Action: Preserve the target garment's exact silhouette and fit. "
+        f"Do not alter body shape or pose. "
+        f"Replace only the surface appearance with the texture from the reference fabric image "
+        f"'{fabric_name}', rendered in {fabric_color}, "
+        f"mapped realistically across all existing folds, creases, and lighting."
     )
 
 
@@ -243,6 +261,54 @@ col_left, col_right = st.columns([1, 1.4], gap="large")
 # ══════════════════════════════════════════════
 with col_left:
     st.subheader("Input")
+    st.markdown(" ")
+
+    # ── Garment Zone ─────────────────────────
+    st.markdown("**Target Garment**")
+    garment_zone = st.radio(
+        "Which part of the outfit to swap:",
+        options=["upper", "lower"],
+        format_func=lambda x: "👕  Upper Body (t-shirt, jacket, long-sleeve, hoodie…)"
+                               if x == "upper"
+                               else "👖  Lower Body (trousers, jeans, skirt, shorts…)",
+        index=0,
+        label_visibility="collapsed",
+        horizontal=False,
+        key="garment_zone"
+    )
+
+    st.markdown(" ")
+
+    # ── Fabric Color ──────────────────────────
+    st.markdown("**Fabric Color**")
+    st.markdown(
+        "<p style='font-size:0.78rem;color:#999;margin-top:-6px;margin-bottom:8px;'>"
+        "Pick a color — the model will apply this to the texture from your swatch.</p>",
+        unsafe_allow_html=True
+    )
+    COLOR_PRESETS = {
+        "⬜ White":       "white",
+        "🖤 Black":       "black",
+        "🩶 Light Grey":  "light grey",
+        "🩷 Dusty Pink":  "dusty pink",
+        "🔴 Red":         "red",
+        "🟠 Terracotta":  "terracotta",
+        "🟡 Mustard":     "mustard yellow",
+        "🟢 Olive":       "olive green",
+        "🔵 Navy":        "navy blue",
+        "🫐 Cobalt":      "cobalt blue",
+        "🟣 Lavender":    "lavender",
+        "🤎 Camel":       "camel brown",
+    }
+    color_label = st.selectbox(
+        "Fabric color",
+        options=list(COLOR_PRESETS.keys()),
+        index=0,
+        label_visibility="collapsed",
+        key="color_select"
+    )
+    fabric_color = COLOR_PRESETS[color_label]
+
     st.markdown(" ")
 
     # ── Base Model Image ─────────────────────
@@ -357,14 +423,19 @@ with col_right:
                 output_slot.warning("⚠️  Please upload a Reference Fabric Swatch.")
             else:
                 fabric_name = fabric_name_from_file(uploaded_fabric)
-                prompt_text = build_gemini_prompt(fabric_name)
+                prompt_text = build_gemini_prompt(fabric_name, garment_zone, fabric_color)
 
-                with st.spinner(f"Gemini is swapping fabric: '{fabric_name}'… (may take up to 2 min)"):
+                with st.spinner(f"Gemini swapping '{fabric_name}' ({fabric_color}) on {garment_zone} body… (may take up to 2 min)"):
                     try:
+                        # Read fresh bytes on every execution — prevents stale
+                        # buffer reuse across multiple consecutive Execute presses.
                         model_bytes  = uploaded_model.read()
                         fabric_bytes = uploaded_fabric.read()
-                        model_img    = Image.open(io.BytesIO(model_bytes)).convert("RGB")
-                        fabric_img   = Image.open(io.BytesIO(fabric_bytes)).convert("RGB")
+                        uploaded_model.seek(0)
+                        uploaded_fabric.seek(0)
+
+                        model_img  = Image.open(io.BytesIO(model_bytes)).convert("RGB")
+                        fabric_img = Image.open(io.BytesIO(fabric_bytes)).convert("RGB")
 
                         # Capture target dimensions before API call
                         target_w, target_h = model_img.size
