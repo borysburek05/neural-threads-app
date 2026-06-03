@@ -12,7 +12,7 @@ from pathlib import Path
 # ─────────────────────────────────────────────
 st.set_page_config(
     layout="wide",
-    page_title="Neural Threads Fabric Lab",
+    page_title="Eikon Fabric Lab",
     page_icon="🧵"
 )
 
@@ -209,7 +209,7 @@ def build_gemini_prompt(fabric_name: str) -> str:
 # ─────────────────────────────────────────────
 # HEADER
 # ─────────────────────────────────────────────
-st.title("NEURAL THREADS")
+st.title("EIKON")
 st.markdown(
     "<p style='color:#888;font-size:0.85rem;letter-spacing:0.12em;"
     "text-transform:uppercase;margin-top:-8px;margin-bottom:24px;'>"
@@ -222,7 +222,7 @@ st.markdown("<hr>", unsafe_allow_html=True)
 # DEMO MODE TOGGLE
 # ─────────────────────────────────────────────
 demo_mode = st.toggle(
-    "🎭  Demo Mode (Offline — safe for live presentations)",
+    "🎭  Demo Mode",
     value=False,
     help=(
         "ON  → Bypasses the API entirely. Simulates loading then shows your "
@@ -230,10 +230,6 @@ demo_mode = st.toggle(
         "OFF → Calls the Gemini API live with your uploaded images."
     )
 )
-if demo_mode:
-    st.success("**Demo Mode ON** — API is bypassed. Pre-generated image will display after simulated loading.")
-else:
-    st.info("**Live Mode** — Google Gemini image-editing API will be called on Execute.")
 
 st.markdown("<hr>", unsafe_allow_html=True)
 
@@ -246,7 +242,7 @@ col_left, col_right = st.columns([1, 1.4], gap="large")
 # LEFT COLUMN — SOURCE ASSETS
 # ══════════════════════════════════════════════
 with col_left:
-    st.subheader("Source Assets")
+    st.subheader("Input")
     st.markdown(" ")
 
     # ── Base Model Image ─────────────────────
@@ -302,7 +298,7 @@ with col_left:
 # RIGHT COLUMN — OUTPUT VIEWPORT
 # ══════════════════════════════════════════════
 with col_right:
-    st.subheader("Output Viewport")
+    st.subheader("Output")
     st.markdown(" ")
 
     output_slot   = st.empty()
@@ -342,7 +338,7 @@ with col_right:
                 download_slot.download_button(
                     label="⬇️  Download as JPG",
                     data=pil_to_bytes(demo_img),
-                    file_name=f"neural_threads_demo_{int(time.time())}.jpg",
+                    file_name=f"eikon_demo_{int(time.time())}.jpg",
                     mime="image/jpeg",
                     use_container_width=True
                 )
@@ -414,7 +410,7 @@ with col_right:
                             download_slot.download_button(
                                 label="⬇️  Download as JPG",
                                 data=pil_to_bytes(result_img),
-                                file_name=f"neural_threads_{int(time.time())}.jpg",
+                                file_name=f"eikon_{int(time.time())}.jpg",
                                 mime="image/jpeg",
                                 use_container_width=True,
                             )
@@ -440,4 +436,3 @@ with col_right:
                             f"If this is a 503, the timeout fix is already applied — "
                             f"try again in a few seconds."
                         )
-                    
