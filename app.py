@@ -10,17 +10,10 @@ from pathlib import Path
 # ─────────────────────────────────────────────
 # PAGE CONFIG
 # ─────────────────────────────────────────────
-st.set_page_config(
-    layout="wide",
-    page_title="Eikon Fabric Lab",
-    page_icon="🧵"
-)
+st.set_page_config(layout="wide", page_title="Eikon Fabric Lab", page_icon="🧵")
 
 # ─────────────────────────────────────────────
-# SECURITY: Load API key from Streamlit Secrets
-# On Streamlit Cloud → App Settings → Secrets:
-#   GOOGLE_API_KEY = "AIza_your_key_here"
-# Locally → .streamlit/secrets.toml (add to .gitignore)
+# SECURITY
 # ─────────────────────────────────────────────
 os.environ["GOOGLE_API_KEY"] = st.secrets["GOOGLE_API_KEY"]
 
@@ -34,125 +27,89 @@ _http_opts = types.HttpOptions(
 )
 client = genai.Client(http_options=_http_opts)
 
-# ─────────────────────────────────────────────
-# DEMO MODE — place a pre-generated JPG in the
-# same folder as app.py and update the path.
-# ─────────────────────────────────────────────
 DEMO_IMAGE_PATH = "demo_output.jpg"
 
 # ─────────────────────────────────────────────
-# LOOKBOOK CSS
+# CSS
 # ─────────────────────────────────────────────
 st.markdown("""
 <style>
   #MainMenu, footer, header { visibility: hidden; }
   .stDeployButton { display: none; }
 
-  html, body, [data-testid="stAppViewContainer"],
-  [data-testid="stApp"], .main {
+  html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"], .main {
     background-color: #FAF7F2 !important;
-    color: #000000 !important;
+    color: #000 !important;
     font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif !important;
   }
-  h1 {
-    font-size: 2rem !important;
-    font-weight: 800 !important;
-    letter-spacing: -0.03em !important;
-    color: #000000 !important;
-    margin-bottom: 0 !important;
-  }
-  h2, h3 {
-    font-weight: 700 !important;
-    letter-spacing: -0.02em !important;
-    color: #000000 !important;
-  }
-  p, .stMarkdown p, label, [data-testid="stText"] {
-    color: #333333 !important;
-    font-size: 0.875rem !important;
-  }
+  /* kill default padding so the 3-pane fits one screen */
+  .block-container { padding-top: 1rem !important; padding-bottom: 0 !important; }
+
+  h1 { font-size: 1.6rem !important; font-weight: 800 !important;
+       letter-spacing: -0.03em !important; color: #000 !important; margin-bottom: 0 !important; }
+  h2, h3 { font-weight: 700 !important; letter-spacing: -0.02em !important; color: #000 !important; }
+  p, .stMarkdown p, label, [data-testid="stText"] { color: #333 !important; font-size: 0.82rem !important; }
+
+  /* file uploader */
   [data-testid="stFileUploader"] {
-    background: #FFFFFF !important;
-    border: none !important;
-    border-radius: 12px !important;
-    box-shadow: 0 2px 16px rgba(0,0,0,0.07) !important;
-    padding: 8px !important;
+    background: #fff !important; border: none !important;
+    border-radius: 10px !important; box-shadow: 0 2px 12px rgba(0,0,0,0.06) !important;
+    padding: 4px !important;
   }
   [data-testid="stFileUploader"] section {
-    border: 1.5px dashed #DDCCBB !important;
-    border-radius: 10px !important;
+    border: 1.5px dashed #DDCCBB !important; border-radius: 8px !important;
     background: #FDFAF6 !important;
   }
   [data-testid="stFileUploader"] section:hover {
-    border-color: #FF7F50 !important;
-    background: #FFF4EE !important;
+    border-color: #FF7F50 !important; background: #FFF4EE !important;
   }
+
+  /* execute button */
   .stButton > button {
-    background-color: #FF7F50 !important;
-    color: #FFFFFF !important;
-    border: none !important;
-    border-radius: 8px !important;
-    font-weight: 700 !important;
-    font-size: 0.95rem !important;
-    letter-spacing: 0.03em !important;
-    padding: 0.65rem 1.5rem !important;
-    transition: background 0.2s, transform 0.1s !important;
+    background-color: #FF7F50 !important; color: #fff !important;
+    border: none !important; border-radius: 8px !important;
+    font-weight: 700 !important; font-size: 0.9rem !important;
+    padding: 0.6rem 1.2rem !important;
     box-shadow: 0 4px 14px rgba(255,127,80,0.35) !important;
+    transition: background 0.2s, transform 0.1s !important;
   }
-  .stButton > button:hover {
-    background-color: #e86d3f !important;
-    transform: translateY(-1px) !important;
-  }
+  .stButton > button:hover { background-color: #e86d3f !important; transform: translateY(-1px) !important; }
   .stButton > button:active { transform: translateY(0) !important; }
+
+  /* download button */
   .stDownloadButton > button {
-    background-color: #000000 !important;
-    color: #FFFFFF !important;
-    border: none !important;
-    border-radius: 8px !important;
-    font-weight: 600 !important;
-    font-size: 0.875rem !important;
-    padding: 0.55rem 1.25rem !important;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.2) !important;
-    transition: background 0.2s !important;
+    background-color: #000 !important; color: #fff !important;
+    border: none !important; border-radius: 8px !important;
+    font-weight: 600 !important; font-size: 0.82rem !important;
+    padding: 0.5rem 1rem !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.18) !important;
   }
-  .stDownloadButton > button:hover { background-color: #333333 !important; }
-  [data-testid="stToggle"] label {
-    color: #000000 !important;
-    font-weight: 600 !important;
-  }
-  [data-testid="stAlert"] {
-    border-radius: 10px !important;
-    border: none !important;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.06) !important;
-  }
+  .stDownloadButton > button:hover { background-color: #333 !important; }
+
+  /* toggle */
+  [data-testid="stToggle"] label { color: #000 !important; font-weight: 600 !important; }
+
+  /* alerts */
+  [data-testid="stAlert"] { border-radius: 8px !important; border: none !important; }
+
+  /* filename pill */
   .filename-pill {
-    display: inline-block;
-    background: #FFFFFF;
-    border: 1px solid #EADDD0;
-    border-radius: 20px;
-    padding: 4px 14px;
-    font-size: 0.78rem;
-    color: #FF7F50;
-    font-weight: 600;
-    letter-spacing: 0.01em;
-    margin-bottom: 8px;
-    box-shadow: 0 1px 6px rgba(0,0,0,0.06);
+    display: inline-block; background: #fff; border: 1px solid #EADDD0;
+    border-radius: 20px; padding: 2px 10px; font-size: 0.72rem;
+    color: #FF7F50; font-weight: 600; margin-bottom: 4px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.05);
   }
-  .thumb-label {
-    font-size: 0.72rem;
-    color: #999;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    margin-bottom: 4px;
+  .thumb-label { font-size: 0.68rem; color: #aaa; text-transform: uppercase;
+                 letter-spacing: 0.07em; margin-bottom: 2px; }
+  .pane-label { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.1em;
+                text-transform: uppercase; color: #bbb; margin-bottom: 6px; }
+  .output-placeholder {
+    height: 340px; background: #fff; border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+    display: flex; align-items: center; justify-content: center;
+    color: #ccc; font-size: 0.8rem; letter-spacing: 0.05em;
   }
-  hr {
-    border: none !important;
-    border-top: 1px solid #EDE8E0 !important;
-    margin: 1.5rem 0 !important;
-  }
-  [data-testid="stSpinner"] p {
-    color: #555 !important;
-    font-style: italic !important;
-  }
+  hr { border: none !important; border-top: 1px solid #EDE8E0 !important; margin: 0.8rem 0 !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -160,95 +117,99 @@ st.markdown("""
 # ─────────────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────────────
-def fabric_name_from_file(uploaded_file) -> str:
-    """'Structured_Cotton.jpg' → 'Structured Cotton'"""
-    stem = Path(uploaded_file.name).stem
-    return stem.replace("_", " ").replace("-", " ").title()
+def fabric_name_from_file(f) -> str:
+    return Path(f.name).stem.replace("_", " ").replace("-", " ").title()
 
-
-def pil_to_bytes(img: Image.Image, fmt="JPEG") -> bytes:
+def pil_to_bytes(img: Image.Image) -> bytes:
     buf = io.BytesIO()
-    img.save(buf, format=fmt, quality=95)
+    img.save(buf, format="JPEG", quality=95)
     return buf.getvalue()
 
+def fit_thumbnail(img: Image.Image, max_h: int = 200) -> Image.Image:
+    """Scale image down so height ≤ max_h, preserving aspect ratio."""
+    if img.height <= max_h:
+        return img
+    ratio = max_h / img.height
+    return img.resize((round(img.width * ratio), max_h), Image.LANCZOS)
 
-def match_dimensions(result_img: Image.Image, target_img: Image.Image) -> Image.Image:
-    """
-    Scale result_img so its longer side matches the target's longer side,
-    preserving the result's own aspect ratio (no stretching/squashing).
-    Then crop or pad symmetrically to hit the exact target pixel dimensions.
-    """
-    target_w, target_h = target_img.size
+def match_dimensions(result_img: Image.Image, target_w: int, target_h: int) -> Image.Image:
+    """Scale-to-fill then centre-crop to exact target dimensions."""
     if result_img.size == (target_w, target_h):
         return result_img
+    sw, sh = result_img.size
+    scale  = max(target_w / sw, target_h / sh)
+    scaled = result_img.resize((round(sw * scale), round(sh * scale)),
+                                Image.LANCZOS if scale < 1 else Image.BICUBIC)
+    l = (scaled.width  - target_w) // 2
+    t = (scaled.height - target_h) // 2
+    return scaled.crop((l, t, l + target_w, t + target_h))
 
-    # Step 1 — scale preserving aspect ratio to fill target box
-    src_w, src_h = result_img.size
-    scale = max(target_w / src_w, target_h / src_h)
-    scaled_w = round(src_w * scale)
-    scaled_h = round(src_h * scale)
-    resample = Image.LANCZOS if scale < 1 else Image.BICUBIC
-    scaled = result_img.resize((scaled_w, scaled_h), resample)
-
-    # Step 2 — centre-crop to exact target dimensions
-    left = (scaled_w - target_w) // 2
-    top  = (scaled_h - target_h) // 2
-    return scaled.crop((left, top, left + target_w, top + target_h))
+def open_rgb(uploaded) -> Image.Image:
+    uploaded.seek(0)
+    img = Image.open(io.BytesIO(uploaded.read())).convert("RGB")
+    uploaded.seek(0)
+    return img
 
 
-def extract_fabric_description(fabric_img: Image.Image) -> str:
+# ─────────────────────────────────────────────
+# PIPELINE STEP 1 — consensus fabric analysis
+# ─────────────────────────────────────────────
+def extract_consensus(model_img: Image.Image,
+                      fabric_imgs: list[Image.Image]) -> str:
     """
-    Step 1 — uses gemini-2.5-flash (text-only) to extract a precise,
-    architectural description of the fabric swatch's exact color, texture,
-    pattern geometry, and tonal undertones. Returns a single sentence.
+    Sends the base model image + all fabric swatches to gemini-2.5-flash
+    for a single consolidated architectural description.
     """
+    contents = [
+        "Analyze all provided fabric swatches and compare them to the target "
+        "garment on the model. Act as a precise material analyst. Perform an "
+        "automated average of the colors, patterns, and textures across all swatches. "
+        "Output a consolidated, single-sentence architectural description specifying "
+        "the exact consolidated fabric shade, pattern structure, textile weave, and "
+        "expected scale relative to the base model. Do not use generic words. "
+        "Focus on rigid technical details.",
+        model_img,
+        *fabric_imgs,
+    ]
     response = client.models.generate_content(
         model="gemini-2.5-flash",
-        contents=[
-            "Analyze this fabric swatch image. Provide a highly detailed, "
-            "one-sentence architectural description specifying its exact color shade, "
-            "precise tonal undertones, highlights, specific pattern geometry, and "
-            "texture weave. Do not use generic color names; describe the exact hue "
-            "and depth visible. Output only the raw description without introductions.",
-            fabric_img,
-        ],
+        contents=contents,
     )
     return response.text.strip()
 
 
-def build_gemini_prompt(automated_fabric_description: str, garment_zone: str) -> str:
-    """
-    Step 2 — builds the hyper-strict fabric swap instruction using the
-    automated fabric description extracted in Step 1.
-    """
+# ─────────────────────────────────────────────
+# PIPELINE STEP 2 — hyper-strict swap prompt
+# ─────────────────────────────────────────────
+def build_swap_prompt(consolidated_fabric_consensus: str,
+                      garment_zone: str) -> str:
     if garment_zone == "upper":
         target_desc = (
             "the upper-body garment worn by the model "
-            "(e.g. t-shirt, jacket, long-sleeve shirt, hoodie — "
-            "whichever upper garment is present)"
+            "(t-shirt, jacket, long-sleeve shirt, hoodie, or similar)"
         )
-        lock_desc = "Keep the lower-body clothing, face, identity, pose, and background 100% identical."
+        lock_extra = "Keep the lower-body clothing 100% identical."
     else:
         target_desc = (
             "the lower-body garment worn by the model "
-            "(e.g. trousers, jeans, skirt, shorts — "
-            "whichever lower garment is present)"
+            "(trousers, jeans, skirt, shorts, or similar)"
         )
-        lock_desc = "Keep the upper-body clothing, face, identity, pose, and background 100% identical."
+        lock_extra = "Keep the upper-body clothing 100% identical."
 
     return (
-        f"Task: High-Fidelity 1:1 Fabric Structural Swap.\n\n"
-        f"Target Garment: {target_desc}.\n\n"
-        f"Fabric to Apply: {automated_fabric_description}\n\n"
-        f"Crucial Constraint: You are completely forbidden from modifying the model's "
-        f"body, face, skin, hair, pose, background, or hand positions. "
-        f"The model's hands must remain exactly in their original physical positions "
-        f"outside of any pockets; do not alter or hide the hands. "
-        f"{lock_desc} "
-        f"Keep all non-targeted pixels 100% identical.\n\n"
-        f"Action: Seamlessly wrap the exact color tones, patterns, and textures of "
-        f"the reference fabric onto the target garment, perfectly matching the "
-        f"original lighting, folds, contours, and physical drapery."
+        f"Task: 1:1 Fabric Mapping.\n\n"
+        f"Target Garment: {target_desc} — the item worn in the first image.\n\n"
+        f"Fabric to Apply: {consolidated_fabric_consensus}\n\n"
+        f"Forbidden Modification: You are strictly forbidden from altering the "
+        f"model's face, hair, skin, body, or original pose. "
+        f"Pay specific attention to the model's hands; they are *not* inside pockets. "
+        f"You must preserve the exact position, shape, and visibility of the original "
+        f"hands as they appear in the base model image. "
+        f"Do not hide or reinvent the hands. "
+        f"{lock_extra} "
+        f"All non-targeted pixels must remain 100% identical.\n\n"
+        f"Action: Seamlessly wrap the reference fabric colors and patterns onto the "
+        f"target garment, matching folds, lighting, and contours."
     )
 
 
@@ -257,245 +218,210 @@ def build_gemini_prompt(automated_fabric_description: str, garment_zone: str) ->
 # ─────────────────────────────────────────────
 st.title("EIKON")
 st.markdown(
-    "<p style='color:#888;font-size:0.85rem;letter-spacing:0.12em;"
-    "text-transform:uppercase;margin-top:-8px;margin-bottom:24px;'>"
+    "<p style='color:#888;font-size:0.8rem;letter-spacing:0.12em;"
+    "text-transform:uppercase;margin-top:-6px;margin-bottom:12px;'>"
     "Fabric swapping engine visualizer</p>",
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )
 st.markdown("<hr>", unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────
-# DEMO MODE TOGGLE
+# 3-PANE LAYOUT
 # ─────────────────────────────────────────────
-demo_mode = st.toggle(
-    "🎭  Demo Mode",
-    value=False,
-    help=(
-        "ON  → Bypasses the API entirely. Simulates loading then shows your "
-        "pre-generated image. Guaranteed not to fail during your presentation.\n"
-        "OFF → Calls the Gemini API live with your uploaded images."
-    )
-)
-
-st.markdown("<hr>", unsafe_allow_html=True)
-
-# ─────────────────────────────────────────────
-# MAIN LAYOUT — 2 columns
-# ─────────────────────────────────────────────
-col_left, col_right = st.columns([1, 1.4], gap="large")
+pane_input, pane_output, pane_controls = st.columns([1.1, 1.4, 0.75], gap="medium")
 
 # ══════════════════════════════════════════════
-# LEFT COLUMN — SOURCE ASSETS
+# PANE 1 — INPUT
 # ══════════════════════════════════════════════
-with col_left:
+with pane_input:
     st.subheader("Input")
-    st.markdown(" ")
 
-    # ── Base Model Image ─────────────────────
+    # ── Base model ────────────────────────────
     st.markdown("**Base Model Image**")
     uploaded_model = st.file_uploader(
-        "Upload the garment photo you want to swap fabric on",
-        type=["jpg", "jpeg", "png"],
-        key="model_upload",
-        label_visibility="collapsed"
+        "Base model", type=["jpg","jpeg","png"],
+        key="model_upload", label_visibility="collapsed",
     )
     if uploaded_model:
-        st.markdown(
-            f'<div class="filename-pill">📎 {uploaded_model.name}</div>',
-            unsafe_allow_html=True
-        )
-        st.markdown('<div class="thumb-label">Preview</div>', unsafe_allow_html=True)
-        model_preview = Image.open(io.BytesIO(uploaded_model.read())).convert("RGB")
-        st.image(model_preview, width=300)
-        uploaded_model.seek(0)
+        st.markdown(f'<div class="filename-pill">📎 {uploaded_model.name}</div>',
+                    unsafe_allow_html=True)
+        thumb = fit_thumbnail(open_rgb(uploaded_model), 200)
+        st.image(thumb, use_container_width=False)
 
-    st.markdown(" ")
-
-    # ── Reference Fabric Swatch ──────────────
-    st.markdown("**Reference Fabric Swatch**")
-    uploaded_fabric = st.file_uploader(
-        "Upload the fabric texture you want applied",
-        type=["jpg", "jpeg", "png"],
-        key="fabric_upload",
-        label_visibility="collapsed"
-    )
-    if uploaded_fabric:
-        detected_name = fabric_name_from_file(uploaded_fabric)
-        st.markdown(
-            f'<div class="filename-pill">🧵 {uploaded_fabric.name}</div>',
-            unsafe_allow_html=True
-        )
-        st.markdown(
-            f"<p style='font-size:0.8rem;color:#888;margin-top:2px;'>"
-            f"Detected fabric: <strong style='color:#FF7F50'>{detected_name}</strong></p>",
-            unsafe_allow_html=True
-        )
-        st.markdown('<div class="thumb-label">Preview</div>', unsafe_allow_html=True)
-        fabric_preview = Image.open(io.BytesIO(uploaded_fabric.read())).convert("RGB")
-        st.image(fabric_preview, width=300)
-        uploaded_fabric.seek(0)
-
-    st.markdown(" ")
     st.markdown("<hr>", unsafe_allow_html=True)
-    st.markdown("**Target Garment**")
-    garment_zone = st.radio(
-        "Which part of the outfit to swap:",
-        options=["upper", "lower"],
-        format_func=lambda x: "👕  Upper Body (t-shirt, jacket, long-sleeve, hoodie…)"
-                               if x == "upper"
-                               else "👖  Lower Body (trousers, jeans, skirt, shorts…)",
-        index=0,
-        label_visibility="collapsed",
-        horizontal=False,
-        key="garment_zone"
+
+    # ── Up to 3 fabric swatches ───────────────
+    st.markdown("**Fabric Swatches** (up to 3)")
+    swatch_cols = st.columns(3)
+    uploaded_fabrics: list = []
+
+    for i, col in enumerate(swatch_cols):
+        with col:
+            uf = st.file_uploader(
+                f"Swatch {i+1}", type=["jpg","jpeg","png"],
+                key=f"fabric_{i}", label_visibility="visible",
+            )
+            if uf:
+                uploaded_fabrics.append(uf)
+                thumb = fit_thumbnail(open_rgb(uf), 200)
+                st.image(thumb, use_container_width=True)
+
+# ══════════════════════════════════════════════
+# PANE 2 — OUTPUT
+# ══════════════════════════════════════════════
+with pane_output:
+    st.subheader("Output")
+    output_slot = st.empty()
+
+    # Show persistent result if it exists in session state
+    if "persistent_result_img" in st.session_state:
+        output_slot.image(
+            st.session_state["persistent_result_img"],
+            caption=st.session_state.get("persistent_caption", "Fabric swap result"),
+            use_container_width=True,
+        )
+    else:
+        output_slot.markdown(
+            '<div class="output-placeholder">Awaiting execution…</div>',
+            unsafe_allow_html=True,
+        )
+
+# ══════════════════════════════════════════════
+# PANE 3 — CONTROLS
+# ══════════════════════════════════════════════
+with pane_controls:
+    st.subheader("Controls")
+
+    demo_mode = st.toggle(
+        "🎭  Demo Mode",
+        value=False,
+        help=(
+            "ON  → Bypasses API, shows pre-generated image.\n"
+            "OFF → Runs live Gemini pipeline."
+        ),
+        key="demo_toggle",
     )
 
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown(" ")
+
+    garment_zone = st.radio(
+        "Target garment",
+        options=["upper", "lower"],
+        format_func=lambda x:
+            "👕 Upper Body" if x == "upper" else "👖 Lower Body",
+        index=0,
+        key="garment_zone",
+    )
+
+    st.markdown("<hr>", unsafe_allow_html=True)
     execute_btn = st.button("🚀  Execute Fabric Swap", use_container_width=True)
 
-# ══════════════════════════════════════════════
-# RIGHT COLUMN — OUTPUT VIEWPORT
-# ══════════════════════════════════════════════
-with col_right:
-    st.subheader("Output")
     st.markdown(" ")
 
-    output_slot   = st.empty()
-    download_slot = st.empty()
+    # Download — reads from session_state so clicking never wipes the image
+    if "persistent_result_img" in st.session_state:
+        st.download_button(
+            label="⬇️  Download as JPG",
+            data=pil_to_bytes(st.session_state["persistent_result_img"]),
+            file_name=f"eikon_{int(time.time())}.jpg",
+            mime="image/jpeg",
+            use_container_width=True,
+        )
 
-    output_slot.markdown(
-        "<div style='height:320px;background:#FFFFFF;border-radius:14px;"
-        "box-shadow:0 4px 24px rgba(0,0,0,0.07);display:flex;align-items:center;"
-        "justify-content:center;color:#BBAA99;font-size:0.85rem;letter-spacing:0.05em;'>"
-        "Awaiting execution…</div>",
-        unsafe_allow_html=True
-    )
 
-    # ─────────────────────────────────────────
-    # EXECUTE HANDLER
-    # ─────────────────────────────────────────
-    if execute_btn:
+# ─────────────────────────────────────────────
+# EXECUTE HANDLER
+# ─────────────────────────────────────────────
+if execute_btn:
 
-        # ── DEMO MODE ────────────────────────
-        if demo_mode:
-            with st.spinner("Simulating Gemini engine… (Demo Mode)"):
-                time.sleep(3)
-            try:
-                demo_img = Image.open(DEMO_IMAGE_PATH).convert("RGB")
+    # ── DEMO MODE ────────────────────────────
+    if demo_mode:
+        with st.spinner("Demo Mode — loading pre-generated result…"):
+            time.sleep(3)
+        try:
+            demo_img = Image.open(DEMO_IMAGE_PATH).convert("RGB")
+            if uploaded_model:
+                ref = open_rgb(uploaded_model)
+                demo_img = match_dimensions(demo_img, *ref.size)
+            st.session_state["persistent_result_img"] = demo_img
+            st.session_state["persistent_caption"]    = "Demo output"
+            st.rerun()
+        except FileNotFoundError:
+            with pane_output:
+                st.error(f"Demo image `{DEMO_IMAGE_PATH}` not found.")
 
-                # Resize demo image to match uploaded model dimensions (if available)
-                if uploaded_model:
-                    ref = Image.open(io.BytesIO(uploaded_model.read())).convert("RGB")
-                    uploaded_model.seek(0)
-                    demo_img = match_dimensions(demo_img, ref)
-
-                output_slot.image(
-                    demo_img,
-                    caption="Demo Output — pre-generated result",
-                    use_container_width=True
-                )
-                download_slot.download_button(
-                    label="⬇️  Download as JPG",
-                    data=pil_to_bytes(demo_img),
-                    file_name=f"eikon_demo_{int(time.time())}.jpg",
-                    mime="image/jpeg",
-                    use_container_width=True
-                )
-            except FileNotFoundError:
-                output_slot.error(
-                    f"Demo image `{DEMO_IMAGE_PATH}` not found. "
-                    "Place your pre-generated JPG in the same folder as app.py "
-                    "and update the DEMO_IMAGE_PATH variable at the top of the script."
-                )
-
-        # ── LIVE MODE ────────────────────────
+    # ── LIVE MODE ────────────────────────────
+    else:
+        if uploaded_model is None:
+            with pane_controls:
+                st.warning("⚠️  Upload a Base Model Image first.")
+        elif len(uploaded_fabrics) == 0:
+            with pane_controls:
+                st.warning("⚠️  Upload at least one Fabric Swatch.")
         else:
-            if uploaded_model is None:
-                output_slot.warning("⚠️  Please upload a Base Model Image to use Live Mode.")
-            elif uploaded_fabric is None:
-                output_slot.warning("⚠️  Please upload a Reference Fabric Swatch.")
-            else:
-                with st.spinner(f"Step 1 of 2 — Analyzing fabric swatch…"):
-                    try:
-                        model_bytes  = uploaded_model.read()
-                        fabric_bytes = uploaded_fabric.read()
-                        uploaded_model.seek(0)
-                        uploaded_fabric.seek(0)
+            model_img   = open_rgb(uploaded_model)
+            fabric_imgs = [open_rgb(f) for f in uploaded_fabrics]
+            target_w, target_h = model_img.size
 
-                        model_img  = Image.open(io.BytesIO(model_bytes)).convert("RGB")
-                        fabric_img = Image.open(io.BytesIO(fabric_bytes)).convert("RGB")
+            # STEP 1 — consensus analysis
+            with st.spinner("Step 1 / 2 — Analysing fabric swatches…"):
+                try:
+                    consolidated_fabric_consensus = extract_consensus(
+                        model_img, fabric_imgs
+                    )
+                except Exception as e:
+                    with pane_output:
+                        st.error(f"Step 1 error (fabric analysis): {e}")
+                    st.stop()
 
-                        # Step 1 — extract precise fabric description
-                        automated_fabric_description = extract_fabric_description(fabric_img)
+            # STEP 2 — image swap
+            with st.spinner("Step 2 / 2 — Executing fabric swap… (up to 2 min)"):
+                try:
+                    prompt_text = build_swap_prompt(
+                        consolidated_fabric_consensus, garment_zone
+                    )
 
-                    except Exception as e:
-                        output_slot.error(f"Step 1 error (fabric analysis): {e}")
-                        st.stop()
+                    response = client.models.generate_content(
+                        model="gemini-2.5-flash-image",
+                        contents=[prompt_text, model_img, *fabric_imgs],
+                        config=types.GenerateContentConfig(
+                            response_modalities=["IMAGE"],
+                            http_options=types.HttpOptions(timeout=180_000),
+                        ),
+                    )
 
-                with st.spinner(f"Step 2 of 2 — Executing fabric swap… (may take up to 2 min)"):
-                    try:
-                        fabric_name = fabric_name_from_file(uploaded_fabric)
-                        prompt_text = build_gemini_prompt(
-                            automated_fabric_description, garment_zone
+                    result_img = None
+                    text_parts = []
+                    for part in response.candidates[0].content.parts:
+                        if (part.inline_data is not None and
+                                part.inline_data.mime_type.startswith("image/")):
+                            result_img = Image.open(
+                                io.BytesIO(part.inline_data.data)
+                            ).convert("RGB")
+                            break
+                        if part.text:
+                            text_parts.append(part.text)
+
+                    if result_img is not None:
+                        result_img = match_dimensions(result_img, target_w, target_h)
+                        # Persist so download button never wipes the image
+                        st.session_state["persistent_result_img"] = result_img
+                        st.session_state["persistent_caption"] = (
+                            f"Fabric swap — {garment_zone} body"
                         )
-
-                        # Capture target dimensions before API call
-                        target_w, target_h = model_img.size
-
-                        response = client.models.generate_content(
-                            model="gemini-2.5-flash-image",
-                            contents=[
-                                prompt_text,
-                                model_img,
-                                fabric_img,
-                            ],
-                            config=types.GenerateContentConfig(
-                                response_modalities=["IMAGE"],
-                                http_options=types.HttpOptions(timeout=180_000),
-                            ),
-                        )
-
-                        # Extract image from response parts
-                        result_img = None
-                        text_parts = []
-
-                        for part in response.candidates[0].content.parts:
-                            if part.inline_data is not None and \
-                               part.inline_data.mime_type.startswith("image/"):
-                                result_img = Image.open(
-                                    io.BytesIO(part.inline_data.data)
-                                ).convert("RGB")
-                                break
-                            if part.text:
-                                text_parts.append(part.text)
-
-                        if result_img is not None:
-                            result_img = match_dimensions(
-                                result_img,
-                                Image.new("RGB", (target_w, target_h))
+                        st.rerun()   # re-render pane 2 & download button cleanly
+                    else:
+                        fallback = " ".join(text_parts) or "No image returned."
+                        with pane_output:
+                            st.warning(
+                                f"⚠️  Gemini returned text instead of an image.\n\n"
+                                f"**Model said:** {fallback}\n\n"
+                                f"Try a simpler swatch or enable Demo Mode."
                             )
-                            # Store in session state so download doesn't wipe it
-                            st.session_state["last_result"] = result_img
-                            st.session_state["last_fabric"] = fabric_name
 
-                    except Exception as e:
-                        output_slot.error(
+                except Exception as e:
+                    with pane_output:
+                        st.error(
                             f"Gemini API error: {e}\n\n"
-                            f"If this is a 503, the timeout fix is already applied — "
-                            f"try again in a few seconds."
+                            f"If this is a 503, try again in a few seconds."
                         )
-
-            # ── Render outside the spinner so it survives re-runs ──
-            if "last_result" in st.session_state:
-                output_slot.image(
-                    st.session_state["last_result"],
-                    caption=f"Fabric swap — {st.session_state.get('last_fabric', '')}",
-                    use_container_width=True,
-                )
-                download_slot.download_button(
-                    label="⬇️  Download as JPG",
-                    data=pil_to_bytes(st.session_state["last_result"]),
-                    file_name=f"eikon_{int(time.time())}.jpg",
-                    mime="image/jpeg",
-                    use_container_width=True,
-                )
