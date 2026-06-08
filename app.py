@@ -196,11 +196,30 @@ def match_dimensions(result_img: Image.Image, target_img: Image.Image) -> Image.
     return scaled.crop((left, top, left + target_w, top + target_h))
 
 
-def build_gemini_prompt(fabric_name: str, garment_zone: str, fabric_color: str) -> str:
+def extract_fabric_description(fabric_img: Image.Image) -> str:
     """
-    Builds the structured fabric-swap instruction sent to Gemini.
-    garment_zone : "upper body" or "lower body"
-    fabric_color : plain English color name e.g. "red", "navy blue"
+    Step 1 — uses gemini-2.5-flash (text-only) to extract a precise,
+    architectural description of the fabric swatch's exact color, texture,
+    pattern geometry, and tonal undertones. Returns a single sentence.
+    """
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=[
+            "Analyze this fabric swatch image. Provide a highly detailed, "
+            "one-sentence architectural description specifying its exact color shade, "
+            "precise tonal undertones, highlights, specific pattern geometry, and "
+            "texture weave. Do not use generic color names; describe the exact hue "
+            "and depth visible. Output only the raw description without introductions.",
+            fabric_img,
+        ],
+    )
+    return response.text.strip()
+
+
+def build_gemini_prompt(automated_fabric_description: str, garment_zone: str) -> str:
+    """
+    Step 2 — builds the hyper-strict fabric swap instruction using the
+    automated fabric description extracted in Step 1.
     """
     if garment_zone == "upper":
         target_desc = (
@@ -218,17 +237,18 @@ def build_gemini_prompt(fabric_name: str, garment_zone: str, fabric_color: str) 
         lock_desc = "Keep the upper-body clothing, face, identity, pose, and background 100% identical."
 
     return (
-        f"Task: 1:1 Fabric & Color Swap on a specific garment.\n\n"
-        f"Target Garment: Apply the swap ONLY to {target_desc}.\n\n"
-        f"Color Instruction: The new fabric MUST be {fabric_color}. "
-        f"This color overrides whatever color appears in the reference swatch. "
-        f"Use the swatch only for texture, weave pattern, and material feel — not its color.\n\n"
-        f"Strict Constraints: {lock_desc}\n\n"
-        f"Action: Preserve the target garment's exact silhouette and fit. "
-        f"Do not alter body shape or pose. "
-        f"Replace only the surface appearance with the texture from the reference fabric image "
-        f"'{fabric_name}', rendered in {fabric_color}, "
-        f"mapped realistically across all existing folds, creases, and lighting."
+        f"Task: High-Fidelity 1:1 Fabric Structural Swap.\n\n"
+        f"Target Garment: {target_desc}.\n\n"
+        f"Fabric to Apply: {automated_fabric_description}\n\n"
+        f"Crucial Constraint: You are completely forbidden from modifying the model's "
+        f"body, face, skin, hair, pose, background, or hand positions. "
+        f"The model's hands must remain exactly in their original physical positions "
+        f"outside of any pockets; do not alter or hide the hands. "
+        f"{lock_desc} "
+        f"Keep all non-targeted pixels 100% identical.\n\n"
+        f"Action: Seamlessly wrap the exact color tones, patterns, and textures of "
+        f"the reference fabric onto the target garment, perfectly matching the "
+        f"original lighting, folds, contours, and physical drapery."
     )
 
 
@@ -239,7 +259,7 @@ st.title("EIKON")
 st.markdown(
     "<p style='color:#888;font-size:0.85rem;letter-spacing:0.12em;"
     "text-transform:uppercase;margin-top:-8px;margin-bottom:24px;'>"
-    "Fabric Lab · AI Material Swapping Engine</p>",
+    "Fabric swapping engine visualizer</p>",
     unsafe_allow_html=True
 )
 st.markdown("<hr>", unsafe_allow_html=True)
@@ -315,7 +335,6 @@ with col_left:
         st.image(fabric_preview, width=300)
         uploaded_fabric.seek(0)
 
-    # ── Settings (below images) ───────────────
     st.markdown(" ")
     st.markdown("<hr>", unsafe_allow_html=True)
     st.markdown("**Target Garment**")
@@ -330,36 +349,6 @@ with col_left:
         horizontal=False,
         key="garment_zone"
     )
-
-    st.markdown(" ")
-    st.markdown("**Fabric Color**")
-    st.markdown(
-        "<p style='font-size:0.78rem;color:#999;margin-top:-6px;margin-bottom:8px;'>"
-        "Pick a color — the model will apply this to the texture from your swatch.</p>",
-        unsafe_allow_html=True
-    )
-    COLOR_PRESETS = {
-        "⬜ White":       "white",
-        "🖤 Black":       "black",
-        "🩶 Light Grey":  "light grey",
-        "🩷 Dusty Pink":  "dusty pink",
-        "🔴 Red":         "red",
-        "🟠 Terracotta":  "terracotta",
-        "🟡 Mustard":     "mustard yellow",
-        "🟢 Olive":       "olive green",
-        "🔵 Navy":        "navy blue",
-        "🫐 Cobalt":      "cobalt blue",
-        "🟣 Lavender":    "lavender",
-        "🤎 Camel":       "camel brown",
-    }
-    color_label = st.selectbox(
-        "Fabric color",
-        options=list(COLOR_PRESETS.keys()),
-        index=0,
-        label_visibility="collapsed",
-        key="color_select"
-    )
-    fabric_color = COLOR_PRESETS[color_label]
 
     st.markdown("<br>", unsafe_allow_html=True)
     execute_btn = st.button("🚀  Execute Fabric Swap", use_container_width=True)
@@ -426,13 +415,8 @@ with col_right:
             elif uploaded_fabric is None:
                 output_slot.warning("⚠️  Please upload a Reference Fabric Swatch.")
             else:
-                fabric_name = fabric_name_from_file(uploaded_fabric)
-                prompt_text = build_gemini_prompt(fabric_name, garment_zone, fabric_color)
-
-                with st.spinner(f"Gemini swapping '{fabric_name}' ({fabric_color}) on {garment_zone} body… (may take up to 2 min)"):
+                with st.spinner(f"Step 1 of 2 — Analyzing fabric swatch…"):
                     try:
-                        # Read fresh bytes on every execution — prevents stale
-                        # buffer reuse across multiple consecutive Execute presses.
                         model_bytes  = uploaded_model.read()
                         fabric_bytes = uploaded_fabric.read()
                         uploaded_model.seek(0)
@@ -440,6 +424,20 @@ with col_right:
 
                         model_img  = Image.open(io.BytesIO(model_bytes)).convert("RGB")
                         fabric_img = Image.open(io.BytesIO(fabric_bytes)).convert("RGB")
+
+                        # Step 1 — extract precise fabric description
+                        automated_fabric_description = extract_fabric_description(fabric_img)
+
+                    except Exception as e:
+                        output_slot.error(f"Step 1 error (fabric analysis): {e}")
+                        st.stop()
+
+                with st.spinner(f"Step 2 of 2 — Executing fabric swap… (may take up to 2 min)"):
+                    try:
+                        fabric_name = fabric_name_from_file(uploaded_fabric)
+                        prompt_text = build_gemini_prompt(
+                            automated_fabric_description, garment_zone
+                        )
 
                         # Capture target dimensions before API call
                         target_w, target_h = model_img.size
