@@ -208,6 +208,10 @@ def build_swap_prompt(consolidated_fabric_consensus: str,
         f"Do not hide or reinvent the hands. "
         f"{lock_extra} "
         f"All non-targeted pixels must remain 100% identical.\n\n"
+        f"CRITICAL FRAMING RULE: Do not crop, zoom, or pan the image. "
+        f"You must return the full, uncropped original frame. "
+        f"The borders, floor, ceiling, and subject's head must remain exactly "
+        f"where they are in the base image.\n\n"
         f"Action: Seamlessly wrap the reference fabric colors and patterns onto the "
         f"target garment, matching folds, lighting, and contours."
     )
@@ -250,19 +254,24 @@ with pane_input:
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
-    # ── Up to 3 fabric swatches ───────────────
+    # ── Up to 3 fabric swatches (batch upload) ───────────────
     st.markdown("**Fabric Swatches** (up to 3)")
-    swatch_cols = st.columns(3)
-    uploaded_fabrics: list = []
+    raw_fabrics = st.file_uploader(
+        "Drop 1–3 fabric swatches here", type=["jpg","jpeg","png"],
+        accept_multiple_files=True,
+        key="fabric_upload", label_visibility="collapsed",
+    )
+    # Validate count
+    if len(raw_fabrics) > 3:
+        st.warning("⚠️  Maximum 3 swatches allowed — only the first 3 will be used.")
+    uploaded_fabrics = raw_fabrics[:3]
 
-    for i, col in enumerate(swatch_cols):
-        with col:
-            uf = st.file_uploader(
-                f"Swatch {i+1}", type=["jpg","jpeg","png"],
-                key=f"fabric_{i}", label_visibility="visible",
-            )
-            if uf:
-                uploaded_fabrics.append(uf)
+    if uploaded_fabrics:
+        swatch_cols = st.columns(len(uploaded_fabrics))
+        for uf, col in zip(uploaded_fabrics, swatch_cols):
+            with col:
+                st.markdown(f'<div class="filename-pill">🧵 {uf.name}</div>',
+                            unsafe_allow_html=True)
                 thumb = fit_thumbnail(open_rgb(uf), 200)
                 st.image(thumb, use_container_width=True)
 
@@ -364,64 +373,69 @@ if execute_btn:
             target_w, target_h = model_img.size
 
             # STEP 1 — consensus analysis
-            with st.spinner("Step 1 / 2 — Analysing fabric swatches…"):
-                try:
-                    consolidated_fabric_consensus = extract_consensus(
-                        model_img, fabric_imgs
-                    )
-                except Exception as e:
-                    with pane_output:
-                        st.error(f"Step 1 error (fabric analysis): {e}")
-                    st.stop()
+            progress_slot = st.empty()
+            progress_slot.info("⚙️ Step 1/2: Analyzing fabric composition...")
+            try:
+                consolidated_fabric_consensus = extract_consensus(
+                    model_img, fabric_imgs
+                )
+            except Exception as e:
+                progress_slot.empty()
+                with pane_output:
+                    st.error(f"Step 1 error (fabric analysis): {e}")
+                st.stop()
 
             # STEP 2 — image swap
-            with st.spinner("Step 2 / 2 — Executing fabric swap… (up to 2 min)"):
-                try:
-                    prompt_text = build_swap_prompt(
-                        consolidated_fabric_consensus, garment_zone
+            progress_slot.info("🚀 Step 2/2: Generating final picture...")
+            try:
+                prompt_text = build_swap_prompt(
+                    consolidated_fabric_consensus, garment_zone
+                )
+
+                response = client.models.generate_content(
+                    model="gemini-2.5-flash-image",
+                    contents=[prompt_text, model_img, *fabric_imgs],
+                    config=types.GenerateContentConfig(
+                        response_modalities=["IMAGE"],
+                        http_options=types.HttpOptions(timeout=180_000),
+                    ),
+                )
+
+                result_img = None
+                text_parts = []
+                for part in response.candidates[0].content.parts:
+                    if (part.inline_data is not None and
+                            part.inline_data.mime_type.startswith("image/")):
+                        result_img = Image.open(
+                            io.BytesIO(part.inline_data.data)
+                        ).convert("RGB")
+                        break
+                    if part.text:
+                        text_parts.append(part.text)
+
+                progress_slot.empty()
+
+                if result_img is not None:
+                    # Force exact pixel match — guards against zoom/crop hallucination
+                    result_img = result_img.resize(model_img.size, Image.LANCZOS)
+                    st.session_state["persistent_result_img"] = result_img
+                    st.session_state["persistent_caption"] = (
+                        f"Fabric swap — {garment_zone} body"
                     )
-
-                    response = client.models.generate_content(
-                        model="gemini-2.5-flash-image",
-                        contents=[prompt_text, model_img, *fabric_imgs],
-                        config=types.GenerateContentConfig(
-                            response_modalities=["IMAGE"],
-                            http_options=types.HttpOptions(timeout=180_000),
-                        ),
-                    )
-
-                    result_img = None
-                    text_parts = []
-                    for part in response.candidates[0].content.parts:
-                        if (part.inline_data is not None and
-                                part.inline_data.mime_type.startswith("image/")):
-                            result_img = Image.open(
-                                io.BytesIO(part.inline_data.data)
-                            ).convert("RGB")
-                            break
-                        if part.text:
-                            text_parts.append(part.text)
-
-                    if result_img is not None:
-                        result_img = match_dimensions(result_img, target_w, target_h)
-                        # Persist so download button never wipes the image
-                        st.session_state["persistent_result_img"] = result_img
-                        st.session_state["persistent_caption"] = (
-                            f"Fabric swap — {garment_zone} body"
-                        )
-                        st.rerun()   # re-render pane 2 & download button cleanly
-                    else:
-                        fallback = " ".join(text_parts) or "No image returned."
-                        with pane_output:
-                            st.warning(
-                                f"⚠️  Gemini returned text instead of an image.\n\n"
-                                f"**Model said:** {fallback}\n\n"
-                                f"Try a simpler swatch or enable Demo Mode."
-                            )
-
-                except Exception as e:
+                    st.rerun()
+                else:
+                    fallback = " ".join(text_parts) or "No image returned."
                     with pane_output:
-                        st.error(
-                            f"Gemini API error: {e}\n\n"
-                            f"If this is a 503, try again in a few seconds."
+                        st.warning(
+                            f"⚠️  Gemini returned text instead of an image.\n\n"
+                            f"**Model said:** {fallback}\n\n"
+                            f"Try a simpler swatch or enable Demo Mode."
                         )
+
+            except Exception as e:
+                progress_slot.empty()
+                with pane_output:
+                    st.error(
+                        f"Gemini API error: {e}\n\n"
+                        f"If this is a 503, try again in a few seconds."
+                    )
