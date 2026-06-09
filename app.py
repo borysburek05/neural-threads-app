@@ -109,10 +109,7 @@ st.markdown("""
     display: flex; align-items: center; justify-content: center;
     color: #ccc; font-size: 0.8rem; letter-spacing: 0.05em;
   }
-  /* ── Add massive buffer to bottom for comfortable scrolling ── */
-  [data-testid="stAppViewContainer"] {
-    padding-bottom: 250px !important;
-  }
+  hr { border: none !important; border-top: 1px solid #EDE8E0 !important; margin: 0.8rem 0 !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -377,6 +374,7 @@ if execute_btn:
             target_w, target_h = model_img.size
 
             # STEP 1 — consensus analysis
+            progress_slot = st.empty()
             progress_slot.info("⚙️ Step 1/2: Analyzing fabric composition...")
             try:
                 consolidated_fabric_consensus = extract_consensus(
