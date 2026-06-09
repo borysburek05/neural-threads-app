@@ -208,10 +208,6 @@ def build_swap_prompt(consolidated_fabric_consensus: str,
         f"Do not hide or reinvent the hands. "
         f"{lock_extra} "
         f"All non-targeted pixels must remain 100% identical.\n\n"
-        f"CRITICAL FRAMING RULE: Do not crop, zoom, or pan the image. "
-        f"You must return the full, uncropped original frame. "
-        f"The borders, floor, ceiling, and subject's head must remain exactly "
-        f"where they are in the base image.\n\n"
         f"Action: Seamlessly wrap the reference fabric colors and patterns onto the "
         f"target garment, matching folds, lighting, and contours."
     )
