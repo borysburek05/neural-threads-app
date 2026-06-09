@@ -109,7 +109,10 @@ st.markdown("""
     display: flex; align-items: center; justify-content: center;
     color: #ccc; font-size: 0.8rem; letter-spacing: 0.05em;
   }
-  hr { border: none !important; border-top: 1px solid #EDE8E0 !important; margin: 0.8rem 0 !important; }
+  /* bottom scroll buffer */
+  [data-testid="stAppViewContainer"] .main section {
+    padding-bottom: 120px !important;
+  }
 </style>
 """, unsafe_allow_html=True)
 
