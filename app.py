@@ -280,7 +280,8 @@ with pane_input:
 # ══════════════════════════════════════════════
 with pane_output:
     st.subheader("Output")
-    output_slot = st.empty()
+    output_slot   = st.empty()
+    progress_slot = st.empty()   # lives directly under the image viewport
 
     # Show persistent result if it exists in session state
     if "persistent_result_img" in st.session_state:
@@ -373,7 +374,6 @@ if execute_btn:
             target_w, target_h = model_img.size
 
             # STEP 1 — consensus analysis
-            progress_slot = st.empty()
             progress_slot.info("⚙️ Step 1/2: Analyzing fabric composition...")
             try:
                 consolidated_fabric_consensus = extract_consensus(
