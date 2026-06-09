@@ -280,8 +280,7 @@ with pane_input:
 # ══════════════════════════════════════════════
 with pane_output:
     st.subheader("Output")
-    output_slot   = st.empty()
-    progress_slot = st.empty()   # lives directly under the image viewport
+    output_slot = st.empty()
 
     # Show persistent result if it exists in session state
     if "persistent_result_img" in st.session_state:
