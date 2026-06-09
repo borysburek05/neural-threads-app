@@ -109,9 +109,9 @@ st.markdown("""
     display: flex; align-items: center; justify-content: center;
     color: #ccc; font-size: 0.8rem; letter-spacing: 0.05em;
   }
-  /* bottom scroll buffer */
-  [data-testid="stAppViewContainer"] .main section {
-    padding-bottom: 120px !important;
+  /* ── Add massive buffer to bottom for comfortable scrolling ── */
+  [data-testid="stAppViewContainer"] {
+    padding-bottom: 250px !important;
   }
 </style>
 """, unsafe_allow_html=True)
