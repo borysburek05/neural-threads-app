@@ -109,7 +109,13 @@ st.markdown("""
     display: flex; align-items: center; justify-content: center;
     color: #ccc; font-size: 0.8rem; letter-spacing: 0.05em;
   }
-  hr { border: none !important; border-top: 1px solid #EDE8E0 !important; margin: 0.8rem 0 !important; }
+  /* ── Add massive buffer to bottom for comfortable scrolling ── */
+  [data-testid="stAppViewContainer"] {
+    padding-bottom: 250px !important;
+  }
+  [data-testid="stAppViewContainer"] .main section {
+    padding-bottom: 200px !important;
+  }
 </style>
 """, unsafe_allow_html=True)
 
@@ -156,18 +162,16 @@ def open_rgb(uploaded) -> Image.Image:
 # ─────────────────────────────────────────────
 def extract_consensus(model_img: Image.Image,
                       fabric_imgs: list[Image.Image]) -> str:
-    """
-    Sends the base model image + all fabric swatches to gemini-2.5-flash
-    for a single consolidated architectural description.
-    """
     contents = [
-        "Analyze all provided fabric swatches and compare them to the target "
-        "garment on the model. Act as a precise material analyst. Perform an "
-        "automated average of the colors, patterns, and textures across all swatches. "
-        "Output a consolidated, single-sentence architectural description specifying "
-        "the exact consolidated fabric shade, pattern structure, textile weave, and "
-        "expected scale relative to the base model. Do not use generic words. "
-        "Focus on rigid technical details.",
+        "Analyze all provided fabric swatches. Act as a master textile engineer. "
+        "Extract the precise physical properties of this fabric. Output a highly "
+        "detailed, technical description focusing specifically on: "
+        "1) The exact color, hue, and tone. "
+        "2) The surface finish (e.g., highly reflective, metallic, satin shiny, matte, sheer). "
+        "3) Its inherent lighting and shadow behavior. "
+        "4) The expected physical drape, weight, and elasticity "
+        "(e.g., heavy and stiff, light and flowy). "
+        "Output a single, consolidated paragraph of raw technical data.",
         model_img,
         *fabric_imgs,
     ]
@@ -208,6 +212,10 @@ def build_swap_prompt(consolidated_fabric_consensus: str,
         f"Do not hide or reinvent the hands. "
         f"{lock_extra} "
         f"All non-targeted pixels must remain 100% identical.\n\n"
+        f"CRITICAL FRAMING RULE: Do not crop, zoom, or pan the image. "
+        f"You must return the full, uncropped original frame. "
+        f"The borders, floor, ceiling, and subject's head must remain exactly "
+        f"where they are in the base image.\n\n"
         f"Action: Seamlessly wrap the reference fabric colors and patterns onto the "
         f"target garment, matching folds, lighting, and contours."
     )
@@ -276,7 +284,8 @@ with pane_input:
 # ══════════════════════════════════════════════
 with pane_output:
     st.subheader("Output")
-    output_slot = st.empty()
+    output_slot   = st.empty()
+    progress_slot = st.empty()   # lives directly under the image viewport
 
     # Show persistent result if it exists in session state
     if "persistent_result_img" in st.session_state:
@@ -369,64 +378,68 @@ if execute_btn:
             target_w, target_h = model_img.size
 
             # STEP 1 — consensus analysis
-            with st.spinner("Step 1 / 2 — Analysing fabric swatches…"):
-                try:
-                    consolidated_fabric_consensus = extract_consensus(
-                        model_img, fabric_imgs
-                    )
-                except Exception as e:
-                    with pane_output:
-                        st.error(f"Step 1 error (fabric analysis): {e}")
-                    st.stop()
+            progress_slot.info("⚙️ Step 1/2: Analyzing fabric composition...")
+            try:
+                consolidated_fabric_consensus = extract_consensus(
+                    model_img, fabric_imgs
+                )
+            except Exception as e:
+                progress_slot.empty()
+                with pane_output:
+                    st.error(f"Step 1 error (fabric analysis): {e}")
+                st.stop()
 
             # STEP 2 — image swap
-            with st.spinner("Step 2 / 2 — Executing fabric swap… (up to 2 min)"):
-                try:
-                    prompt_text = build_swap_prompt(
-                        consolidated_fabric_consensus, garment_zone
+            progress_slot.info("🚀 Step 2/2: Generating final picture...")
+            try:
+                prompt_text = build_swap_prompt(
+                    consolidated_fabric_consensus, garment_zone
+                )
+
+                response = client.models.generate_content(
+                    model="gemini-2.5-flash-image",
+                    contents=[prompt_text, model_img, *fabric_imgs],
+                    config=types.GenerateContentConfig(
+                        response_modalities=["IMAGE"],
+                        http_options=types.HttpOptions(timeout=180_000),
+                    ),
+                )
+
+                result_img = None
+                text_parts = []
+                for part in response.candidates[0].content.parts:
+                    if (part.inline_data is not None and
+                            part.inline_data.mime_type.startswith("image/")):
+                        result_img = Image.open(
+                            io.BytesIO(part.inline_data.data)
+                        ).convert("RGB")
+                        break
+                    if part.text:
+                        text_parts.append(part.text)
+
+                progress_slot.empty()
+
+                if result_img is not None:
+                    # Force exact pixel match — guards against zoom/crop hallucination
+                    result_img = result_img.resize(model_img.size, Image.LANCZOS)
+                    st.session_state["persistent_result_img"] = result_img
+                    st.session_state["persistent_caption"] = (
+                        f"Fabric swap — {garment_zone} body"
                     )
-
-                    response = client.models.generate_content(
-                        model="gemini-2.5-flash-image",
-                        contents=[prompt_text, model_img, *fabric_imgs],
-                        config=types.GenerateContentConfig(
-                            response_modalities=["IMAGE"],
-                            http_options=types.HttpOptions(timeout=180_000),
-                        ),
-                    )
-
-                    result_img = None
-                    text_parts = []
-                    for part in response.candidates[0].content.parts:
-                        if (part.inline_data is not None and
-                                part.inline_data.mime_type.startswith("image/")):
-                            result_img = Image.open(
-                                io.BytesIO(part.inline_data.data)
-                            ).convert("RGB")
-                            break
-                        if part.text:
-                            text_parts.append(part.text)
-
-                    if result_img is not None:
-                        result_img = match_dimensions(result_img, target_w, target_h)
-                        # Persist so download button never wipes the image
-                        st.session_state["persistent_result_img"] = result_img
-                        st.session_state["persistent_caption"] = (
-                            f"Fabric swap — {garment_zone} body"
-                        )
-                        st.rerun()   # re-render pane 2 & download button cleanly
-                    else:
-                        fallback = " ".join(text_parts) or "No image returned."
-                        with pane_output:
-                            st.warning(
-                                f"⚠️  Gemini returned text instead of an image.\n\n"
-                                f"**Model said:** {fallback}\n\n"
-                                f"Try a simpler swatch or enable Demo Mode."
-                            )
-
-                except Exception as e:
+                    st.rerun()
+                else:
+                    fallback = " ".join(text_parts) or "No image returned."
                     with pane_output:
-                        st.error(
-                            f"Gemini API error: {e}\n\n"
-                            f"If this is a 503, try again in a few seconds."
+                        st.warning(
+                            f"⚠️  Gemini returned text instead of an image.\n\n"
+                            f"**Model said:** {fallback}\n\n"
+                            f"Try a simpler swatch or enable Demo Mode."
                         )
+
+            except Exception as e:
+                progress_slot.empty()
+                with pane_output:
+                    st.error(
+                        f"Gemini API error: {e}\n\n"
+                        f"If this is a 503, try again in a few seconds."
+                    )
