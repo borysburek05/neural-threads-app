@@ -1,7 +1,7 @@
 import streamlit as st
 from google import genai
 from google.genai import types
-from PIL import Image
+from PIL import Image, ImageOps
 import io
 import os
 import time
@@ -151,8 +151,14 @@ def match_dimensions(result_img: Image.Image, target_w: int, target_h: int) -> I
     return scaled.crop((l, t, l + target_w, t + target_h))
 
 def open_rgb(uploaded) -> Image.Image:
+    """
+    Opens an uploaded file as RGB, correcting for mobile phone EXIF
+    orientation metadata so portrait photos don't load sideways.
+    """
     uploaded.seek(0)
-    img = Image.open(io.BytesIO(uploaded.read())).convert("RGB")
+    img = Image.open(io.BytesIO(uploaded.read()))
+    img = ImageOps.exif_transpose(img)   # fixes phone-camera rotation
+    img = img.convert("RGB")
     uploaded.seek(0)
     return img
 
