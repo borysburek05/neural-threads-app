@@ -325,6 +325,10 @@ with pane_controls:
             "👕 Upper Body" if x == "upper" else "👖 Lower Body",
         index=0,
         key="garment_zone",
+        on_change=lambda: [
+            st.session_state.pop("persistent_result_img", None),
+            st.session_state.pop("persistent_caption", None),
+        ],
     )
 
     st.markdown("<hr>", unsafe_allow_html=True)
