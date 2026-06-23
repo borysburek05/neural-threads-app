@@ -184,6 +184,9 @@ def extract_consensus(model_img: Image.Image,
     response = client.models.generate_content(
         model="gemini-2.5-flash",
         contents=contents,
+        config=types.GenerateContentConfig(
+            http_options=types.HttpOptions(timeout=300_000),  # 5 min, in ms
+        ),
     )
     return response.text.strip()
 
